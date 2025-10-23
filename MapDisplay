@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Guest Routes Map - Panopticon</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #000;
+      color: #00ff00;
+      overflow: hidden;
+    }
+
+    #map {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .info-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.9);
+      border: 2px solid #00ff00;
+      border-radius: 10px;
+      padding: 15px;
+      max-width: 300px;
+      box-shadow: 0 5px 20px rgba(0, 255, 0, 0.3);
+      z-index: 1000;
+    }
+
+    .info-title {
+      font-size: 14px;
+      color: #00ff00;
+      font-weight: bold;
+      margin-bottom: 10px;
+      text-align: center;
+      border-bottom: 1px solid #00ff00;
+      padding-bottom: 5px;
+    }
+
+    .stat-item {
+      display: flex;
+      justify-content: space-between;
+      margin: 8px 0;
+      font-size: 11px;
+    }
+
+    .stat-label {
+      color: #00ffff;
+    }
+
+    .stat-value {
+      color: #00ff00;
+      font-weight: bold;
+    }
+
+    .destination-marker {
+      position: absolute;
+      background: #ff0000;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: bold;
+      box-shadow: 0 3px 10px rgba(255, 0, 0, 0.5);
+      transform: translate(-50%, -100%);
+      white-space: nowrap;
+    }
+
+    .destination-marker::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid #ff0000;
+    }
+
+    .loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 24px;
+      color: #00ff00;
+      z-index: 2000;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">LOADING MAP...</div>
+
+  <div id="map"></div>
+
+  <div class="info-panel">
+    <div class="info-title">📍 GUEST ROUTES</div>
+    <div class="stat-item">
+      <span class="stat-label">Destination:</span>
+      <span class="stat-value">5317 Charlotte</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Total Guests:</span>
+      <span class="stat-value" id="totalGuests">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Unique ZIPs:</span>
+      <span class="stat-value" id="uniqueZips">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Avg Distance:</span>
+      <span class="stat-value" id="avgDistance">-- mi</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Farthest:</span>
+      <span class="stat-value" id="farthest">--</span>
+    </div>
+  </div>
+
+  <script>
+    const DESTINATION = {
+      address: '5317 Charlotte St, Kansas City, MO 64110',
+      lat: 39.0473,
+      lng: -94.5739
+    };
+
+    let map;
+    let directionsService;
+    let guestData = [];
+
+    function initMap() {
+      // Initialize Google Maps
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: DESTINATION.lat, lng: DESTINATION.lng },
+        zoom: 11,
+        styles: [
+          { elementType: 'geometry', stylers: [{ color: '#1a1a1a' }] },
+          { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a1a' }] },
+          { elementType: 'labels.text.fill', stylers: [{ color: '#00ff00' }] },
+          { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2d2d2d' }] },
+          { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#00ff00' }] },
+          { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a0a0a' }] }
+        ]
+      });
+
+      directionsService = new google.maps.DirectionsService();
+
+      // Add destination marker
+      new google.maps.Marker({
+        position: { lat: DESTINATION.lat, lng: DESTINATION.lng },
+        map: map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 15,
+          fillColor: '#ff0000',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 3
+        },
+        title: 'Destination: 5317 Charlotte',
+        animation: google.maps.Animation.BOUNCE
+      });
+
+      // Load guest data and draw routes
+      loadGuestRoutes();
+    }
+
+    function loadGuestRoutes() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          guestData = data.guests || [];
+
+          document.getElementById('totalGuests').textContent = guestData.length;
+
+          const uniqueZips = new Set(guestData.map(g => g.zip)).size;
+          document.getElementById('uniqueZips').textContent = uniqueZips;
+
+          if (guestData.length > 0) {
+            drawRoutes();
+          }
+
+          document.getElementById('loading').style.display = 'none';
+        })
+        .withFailureHandler(function(err) {
+          console.error('Error loading guest data:', err);
+          document.getElementById('loading').textContent = 'ERROR LOADING DATA';
+        })
+        .getGuestZipCodes();
+    }
+
+    function drawRoutes() {
+      const colors = ['#00ff00', '#00ffff', '#ff00ff', '#ffff00', '#ff9900'];
+      let colorIndex = 0;
+      let distances = [];
+      let farthestGuest = { zip: '', distance: 0 };
+
+      // Group by ZIP to avoid duplicate routes
+      const zipGroups = {};
+      guestData.forEach(guest => {
+        if (!zipGroups[guest.zip]) {
+          zipGroups[guest.zip] = [];
+        }
+        zipGroups[guest.zip].push(guest);
+      });
+
+      // Draw route for each ZIP code
+      Object.keys(zipGroups).forEach((zip, index) => {
+        const color = colors[colorIndex % colors.length];
+        colorIndex++;
+
+        // Use DirectionsService to get actual routes
+        const request = {
+          origin: zip,
+          destination: DESTINATION.address,
+          travelMode: google.maps.TravelMode.DRIVING
+        };
+
+        directionsService.route(request, function(result, status) {
+          if (status === 'OK') {
+            const route = result.routes[0];
+            const leg = route.legs[0];
+            const distanceMiles = (leg.distance.value / 1609.34).toFixed(1);
+
+            distances.push(parseFloat(distanceMiles));
+
+            if (parseFloat(distanceMiles) > farthestGuest.distance) {
+              farthestGuest = {
+                zip: zip,
+                distance: parseFloat(distanceMiles)
+              };
+            }
+
+            // Draw the route
+            new google.maps.DirectionsRenderer({
+              map: map,
+              directions: result,
+              suppressMarkers: true,
+              polylineOptions: {
+                strokeColor: color,
+                strokeOpacity: 0.7,
+                strokeWeight: 4
+              }
+            });
+
+            // Add origin marker
+            new google.maps.Marker({
+              position: leg.start_location,
+              map: map,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: color,
+                fillOpacity: 0.8,
+                strokeColor: '#ffffff',
+                strokeWeight: 2
+              },
+              title: `${zip} (${zipGroups[zip].length} guest${zipGroups[zip].length > 1 ? 's' : ''})`
+            });
+
+            // Update stats after all routes processed
+            if (Object.keys(zipGroups).length === index + 1) {
+              updateStats(distances, farthestGuest);
+            }
+          }
+        });
+      });
+    }
+
+    function updateStats(distances, farthestGuest) {
+      if (distances.length > 0) {
+        const avgDistance = (distances.reduce((a, b) => a + b, 0) / distances.length).toFixed(1);
+        document.getElementById('avgDistance').textContent = avgDistance + ' mi';
+      }
+
+      if (farthestGuest.zip) {
+        document.getElementById('farthest').textContent =
+          `${farthestGuest.zip} (${farthestGuest.distance} mi)`;
+      }
+    }
+  </script>
+
+  <!-- Google Maps API - Replace YOUR_API_KEY with actual key -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap" async defer></script>
+</body>
+</html>

@@ -145,10 +145,13 @@
   </div>
 
   <script>
-    // Configuration
+    // ============================================================================
+    // CONFIGURATION - ADJUST TIMERS HERE
+    // ============================================================================
     const PAGES = [
-      { name: 'WALL', url: '?page=wall', duration: 30000 },
-      { name: 'MATCHER', url: '?page=mm', duration: 60000 }
+      { name: 'WALL', url: '?page=wall', duration: 30000 },        // 30 seconds
+      { name: 'MATCHER', url: '?page=mm', duration: 60000 },       // 60 seconds
+      { name: 'MAP', url: '?page=map', duration: 45000 }           // 45 seconds
     ];
 
     let currentIndex = 0;

@@ -130,15 +130,19 @@ function doGet(e) {
           .setTitle('Compatibility Matcher - MM')
           .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 
+      case 'map':
+        return HtmlService.createTemplateFromFile('MapDisplay')
+          .evaluate()
+          .setTitle('Guest Routes Map - Panopticon')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
       case 'carousel':
+      case 'display':
+      default:
         return HtmlService.createTemplateFromFile('Carousel')
           .evaluate()
           .setTitle('Display Carousel - Panopticon')
           .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-
-      case 'display':
-      default:
-        return createSimpleDisplay();
     }
   } catch (error) {
     return createErrorPage(error);
@@ -1122,11 +1126,401 @@ function testCompatibilityMatches() {
   return result;
 }
 
+// ============================================================================
+// PHASE 4: MAP DISPLAY - GUEST ROUTES
+// ============================================================================
+
+/**
+ * Get guest ZIP codes for map display
+ * Returns array of checked-in guests with their ZIP codes
+ */
+function getGuestZipCodes() {
+  Logger.log('=== FETCHING GUEST ZIP CODES FOR MAP ===');
+
+  const guests = getCheckedInGuests();
+
+  const guestZips = guests.map(g => ({
+    uid: g.uid,
+    screenName: g.screenName,
+    zip: g.zip,
+    checkInTime: g.checkInTime
+  })).filter(g => g.zip && g.zip !== '');
+
+  Logger.log(`Retrieved ${guestZips.length} guests with ZIP codes`);
+
+  return {
+    guests: guestZips,
+    totalGuests: guestZips.length,
+    timestamp: new Date().toISOString()
+  };
+}
+
+// ============================================================================
+// PHASE 5: WALL DATA BACKEND (Merged from WallData.gs)
+// ============================================================================
+
+/**
+ * Get all data needed for The Wall display
+ * Returns: guests, connections by category, unknowns, stats
+ */
+function getWallData() {
+  Logger.log('=== FETCHING WALL DATA ===');
+
+  const guests = getCheckedInGuests();
+  Logger.log(`Retrieved ${guests.length} checked-in guests`);
+
+  // Identify unknown guests (don't know hosts)
+  const unknownGuests = guests.filter(g => {
+    const knowHosts = String(g.knowHosts || '').toLowerCase();
+    const knownLongest = String(g.knownLongest || '').toLowerCase();
+
+    return knowHosts.includes('no') ||
+           knownLongest.includes('do not know') ||
+           knownLongest === '';
+  });
+
+  Logger.log(`Found ${unknownGuests.length} unknown guests`);
+
+  // Calculate arrival rate (last 30 min)
+  const now = new Date();
+  const thirtyMinAgo = new Date(now - 30 * 60 * 1000);
+  const recentArrivals = guests.filter(g => {
+    const checkInTime = new Date(g.checkInTime);
+    return checkInTime > thirtyMinAgo;
+  });
+
+  // Format guest data for display
+  const formattedGuests = guests.map(g => ({
+    uid: g.uid,
+    screenName: g.screenName,
+    checkInTime: new Date(g.checkInTime).toLocaleTimeString(),
+    checkInTimestamp: new Date(g.checkInTime).getTime(),
+    photoUrl: g.photoUrl || '',
+    isUnknown: unknownGuests.some(u => u.uid === g.uid),
+
+    // Attributes for connection analysis
+    age: g.age,
+    interests: [g.interest1, g.interest2, g.interest3].filter(Boolean),
+    music: g.music,
+    zodiac: g.zodiac,
+    industry: g.industry,
+    education: g.education,
+    orientation: g.orientation,
+    socialStance: g.socialStance,
+    atWorst: g.atWorst
+  }));
+
+  // Build connections by category
+  const connectionsByCategory = buildConnectionsByCategory(formattedGuests);
+
+  return {
+    guests: formattedGuests,
+    connectionsByCategory: connectionsByCategory,
+    unknownGuests: unknownGuests.map(u => ({
+      uid: u.uid,
+      screenName: u.screenName
+    })),
+    stats: {
+      totalGuests: guests.length,
+      totalUnknowns: unknownGuests.length,
+      recentArrivals: recentArrivals.length,
+      lastCheckIn: guests.length > 0 ?
+        Math.max(...guests.map(g => new Date(g.checkInTime).getTime())) : 0
+    }
+  };
+}
+
+/**
+ * Build connections organized by category and subcategory
+ * EXCLUDES sexual orientation for privacy
+ */
+function buildConnectionsByCategory(guests) {
+  Logger.log('Building connections by category...');
+
+  const connections = {
+    age: buildAgeConnections(guests),
+    interests: buildInterestConnections(guests),
+    music: buildMusicConnections(guests),
+    zodiac: buildZodiacConnections(guests),
+    industry: buildIndustryConnections(guests),
+    education: buildEducationConnections(guests),
+    socialStance: buildSocialStanceConnections(guests)
+    // Note: orientation connections excluded for privacy
+  };
+
+  return connections;
+}
+
+/**
+ * Build connections for age groups (by age ranges)
+ */
+function buildAgeConnections(guests) {
+  const ageGroups = {};
+
+  // Helper function to determine age range
+  function getAgeRange(age) {
+    const ageNum = parseInt(age);
+    if (isNaN(ageNum)) return null;
+
+    if (ageNum >= 18 && ageNum <= 20) return 'Age_range_18-20';
+    if (ageNum >= 21 && ageNum <= 24) return 'Age_range_21-24';
+    if (ageNum >= 25 && ageNum <= 29) return 'Age_range_25-29';
+    if (ageNum >= 30 && ageNum <= 34) return 'Age_range_30-34';
+    if (ageNum >= 35 && ageNum <= 39) return 'Age_range_35-39';
+    if (ageNum >= 40 && ageNum <= 44) return 'Age_range_40-44';
+    if (ageNum >= 45) return 'Age_range_45+';
+
+    return null;
+  }
+
+  guests.forEach(guest => {
+    if (!guest.age) return;
+
+    const ageRange = getAgeRange(guest.age);
+    if (!ageRange) return;
+
+    if (!ageGroups[ageRange]) {
+      ageGroups[ageRange] = [];
+    }
+    ageGroups[ageRange].push(guest.uid);
+  });
+
+  // Create connections within each age range
+  const connections = {};
+  Object.keys(ageGroups).forEach(ageRange => {
+    const uids = ageGroups[ageRange];
+    connections[ageRange] = [];
+
+    // Connect all pairs within the range
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[ageRange].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
+/**
+ * Build connections for shared interests
+ */
+function buildInterestConnections(guests) {
+  const interestGroups = {};
+
+  guests.forEach(guest => {
+    guest.interests.forEach(interest => {
+      if (!interest) return;
+
+      if (!interestGroups[interest]) {
+        interestGroups[interest] = [];
+      }
+      interestGroups[interest].push(guest.uid);
+    });
+  });
+
+  const connections = {};
+  Object.keys(interestGroups).forEach(interest => {
+    const uids = interestGroups[interest];
+    connections[interest] = [];
+
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[interest].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
+/**
+ * Build connections for music preferences
+ */
+function buildMusicConnections(guests) {
+  const musicGroups = {};
+
+  guests.forEach(guest => {
+    if (!guest.music) return;
+
+    if (!musicGroups[guest.music]) {
+      musicGroups[guest.music] = [];
+    }
+    musicGroups[guest.music].push(guest.uid);
+  });
+
+  const connections = {};
+  Object.keys(musicGroups).forEach(music => {
+    const uids = musicGroups[music];
+    connections[music] = [];
+
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[music].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
+/**
+ * Build connections for zodiac signs
+ */
+function buildZodiacConnections(guests) {
+  const zodiacGroups = {};
+
+  guests.forEach(guest => {
+    if (!guest.zodiac) return;
+
+    if (!zodiacGroups[guest.zodiac]) {
+      zodiacGroups[guest.zodiac] = [];
+    }
+    zodiacGroups[guest.zodiac].push(guest.uid);
+  });
+
+  const connections = {};
+  Object.keys(zodiacGroups).forEach(zodiac => {
+    const uids = zodiacGroups[zodiac];
+    connections[zodiac] = [];
+
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[zodiac].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
+/**
+ * Build connections for industries
+ */
+function buildIndustryConnections(guests) {
+  const industryGroups = {};
+
+  guests.forEach(guest => {
+    if (!guest.industry) return;
+
+    if (!industryGroups[guest.industry]) {
+      industryGroups[guest.industry] = [];
+    }
+    industryGroups[guest.industry].push(guest.uid);
+  });
+
+  const connections = {};
+  Object.keys(industryGroups).forEach(industry => {
+    const uids = industryGroups[industry];
+    connections[industry] = [];
+
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[industry].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
+/**
+ * Build connections for education levels
+ */
+function buildEducationConnections(guests) {
+  const eduGroups = {};
+
+  guests.forEach(guest => {
+    if (!guest.education) return;
+
+    if (!eduGroups[guest.education]) {
+      eduGroups[guest.education] = [];
+    }
+    eduGroups[guest.education].push(guest.uid);
+  });
+
+  const connections = {};
+  Object.keys(eduGroups).forEach(edu => {
+    const uids = eduGroups[edu];
+    connections[edu] = [];
+
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[edu].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
+/**
+ * Build connections for social stance (similar values)
+ */
+function buildSocialStanceConnections(guests) {
+  // Group by ranges: 1-2, 3-4, 5-6, 7-8, 9-10
+  const stanceGroups = {
+    '1-2': [],
+    '3-4': [],
+    '5-6': [],
+    '7-8': [],
+    '9-10': []
+  };
+
+  guests.forEach(guest => {
+    if (!guest.socialStance) return;
+
+    const stance = parseInt(guest.socialStance);
+    if (stance >= 1 && stance <= 2) stanceGroups['1-2'].push(guest.uid);
+    else if (stance >= 3 && stance <= 4) stanceGroups['3-4'].push(guest.uid);
+    else if (stance >= 5 && stance <= 6) stanceGroups['5-6'].push(guest.uid);
+    else if (stance >= 7 && stance <= 8) stanceGroups['7-8'].push(guest.uid);
+    else if (stance >= 9 && stance <= 10) stanceGroups['9-10'].push(guest.uid);
+  });
+
+  const connections = {};
+  Object.keys(stanceGroups).forEach(range => {
+    const uids = stanceGroups[range];
+    connections[range] = [];
+
+    for (let i = 0; i < uids.length; i++) {
+      for (let j = i + 1; j < uids.length; j++) {
+        connections[range].push({
+          source: uids[i],
+          target: uids[j]
+        });
+      }
+    }
+  });
+
+  return connections;
+}
+
 /**
  * ============================================================================
  * NEXT BUILD PHASES (placeholders):
  * - Phase 3: Analytics layer (Pan_Master, similarity calculations) ✓ COMPLETED
  * - Phase 4: Visualization endpoints (wall data, compatibility matches) ✓ COMPLETED
- * - Phase 5: Documentation automation (Master_Desc, Tool_Registry)
+ * - Phase 5: Map display (guest routes to 5317 Charlotte) ✓ COMPLETED
+ * - Phase 6: Wall data backend merged ✓ COMPLETED
+ * - Phase 7: Documentation automation (Master_Desc, Tool_Registry)
  * ============================================================================
  */
