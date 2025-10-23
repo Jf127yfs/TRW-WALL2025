@@ -124,6 +124,12 @@
       border: 1px solid #bee5eb;
     }
     
+    .message.warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+    }
+    
     .guest-info {
       background: #f8f9fa;
       padding: 20px;
@@ -234,6 +240,19 @@
       color: #888;
       margin-top: 5px;
     }
+    
+    .debug-info {
+      background: #1a1a1a;
+      color: #00ff00;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 11px;
+      margin-top: 10px;
+      display: none;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
@@ -243,6 +262,7 @@
     
     <div id="message" class="message"></div>
     <div id="spinner" class="spinner"></div>
+    <div id="debugInfo" class="debug-info"></div>
     
     <!-- Check-In Form -->
     <form id="checkInForm">
@@ -313,6 +333,24 @@
 
   <script>
     let currentGuest = null;
+    let debugMode = true; // Set to false to hide debug info
+    
+    function debugLog(message, data) {
+      if (!debugMode) return;
+      
+      const debugDiv = document.getElementById('debugInfo');
+      debugDiv.style.display = 'block';
+      
+      const timestamp = new Date().toLocaleTimeString();
+      let logMessage = `[${timestamp}] ${message}`;
+      
+      if (data !== undefined) {
+        logMessage += '\n' + JSON.stringify(data, null, 2);
+      }
+      
+      debugDiv.textContent += logMessage + '\n\n';
+      console.log(message, data);
+    }
     
     // Check-In Form Handler
     document.getElementById('checkInForm').addEventListener('submit', function(e) {
@@ -328,18 +366,39 @@
         return;
       }
       
+      debugLog('Form values extracted', {zip, gender, dob});
+      
       showSpinner(true);
       showMessage('Checking you in...', 'info');
       
-      // Call the backend function
+      // CRITICAL FIX: Pass as separate parameters, not as object
+      // Google Apps Script doesn't always serialize objects correctly
+      debugLog('Calling checkInGuest with separate parameters');
+      
       google.script.run
         .withSuccessHandler(onCheckInSuccess)
         .withFailureHandler(onCheckInError)
-        .checkInGuest({zip: zip, gender: gender, dob: dob});
+        .checkInGuest(zip, gender, dob);  // Pass as SEPARATE parameters
     });
     
     function onCheckInSuccess(result) {
       showSpinner(false);
+      
+      debugLog('Check-in response received', result);
+      
+      // Handle null or undefined result
+      if (!result) {
+        showMessage('⚠️ Backend returned no data. Check Apps Script logs for errors.', 'warning');
+        debugLog('ERROR: Result is null or undefined');
+        return;
+      }
+      
+      // Handle missing 'ok' property
+      if (result.ok === undefined) {
+        showMessage('⚠️ Invalid response format from backend', 'warning');
+        debugLog('ERROR: Response missing "ok" property', result);
+        return;
+      }
       
       if (result.ok) {
         currentGuest = {
@@ -347,8 +406,8 @@
           uid: result.uid
         };
         
-        document.getElementById('screenName').textContent = result.screenName;
-        document.getElementById('uid').textContent = result.uid;
+        document.getElementById('screenName').textContent = result.screenName || 'N/A';
+        document.getElementById('uid').textContent = result.uid || 'N/A';
         
         if (result.alreadyCheckedIn) {
           showMessage(result.message + ' You can update your info or upload a photo.', 'info');
@@ -368,7 +427,7 @@
     function onCheckInError(error) {
       showSpinner(false);
       showMessage('Error: ' + error.message, 'error');
-      console.error('Check-in error:', error);
+      debugLog('Check-in error', error);
     }
     
     // Screen Name Update Handler
@@ -396,6 +455,11 @@
     
     function onNameUpdateSuccess(result) {
       showSpinner(false);
+      
+      if (!result || result.ok === undefined) {
+        showMessage('Invalid response from server', 'warning');
+        return;
+      }
       
       if (result.ok) {
         showMessage(result.message, 'success');
@@ -471,6 +535,11 @@
     
     function onPhotoUploadSuccess(result) {
       showSpinner(false);
+      
+      if (!result || result.ok === undefined) {
+        showMessage('Invalid response from server', 'warning');
+        return;
+      }
       
       if (result.ok) {
         showMessage(result.message + ' ✅', 'success');
