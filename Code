@@ -70,12 +70,15 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   
   ui.createMenu('🎭 Panopticon')
+    .addItem('🎬 Display Carousel (Auto-Rotate)', 'openCarousel')
     .addItem('📊 View Display Dashboard', 'openDisplay')
+    .addSeparator()
+    .addItem('🧱 The Wall Display', 'openWall')
+    .addItem('🎃 Compatibility Matcher (MM)', 'openMM')
     .addSeparator()
     .addItem('✅ Open Check-In Interface', 'openCheckIn')
     .addItem('🧪 Test Check-In System', 'testCheckInSystem')
     .addSeparator()
-    .addItem('🎃 Open Compatibility Matcher (MM)', 'openMM')
     .addItem('🧮 Test Compatibility Matches', 'testCompatibilityMatches')
     .addSeparator()
     .addItem('📈 Generate Master Description', 'generateMasterDesc')
@@ -125,6 +128,12 @@ function doGet(e) {
         return HtmlService.createTemplateFromFile('MM')
           .evaluate()
           .setTitle('Compatibility Matcher - MM')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+      case 'carousel':
+        return HtmlService.createTemplateFromFile('Carousel')
+          .evaluate()
+          .setTitle('Display Carousel - Panopticon')
           .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 
       case 'display':
@@ -404,6 +413,46 @@ function openMM() {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createHtmlOutput(html).setWidth(400).setHeight(150),
     'Compatibility Matcher (MM)'
+  );
+}
+
+function openWall() {
+  const url = ScriptApp.getService().getUrl() + '?page=wall';
+  const html = `
+    <html>
+      <body>
+        <p>Open this URL in a new tab:</p>
+        <p><a href="${url}" target="_blank">${url}</a></p>
+        <script>
+          window.open('${url}', '_blank');
+          google.script.host.close();
+        </script>
+      </body>
+    </html>
+  `;
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(400).setHeight(150),
+    'The Wall Display'
+  );
+}
+
+function openCarousel() {
+  const url = ScriptApp.getService().getUrl() + '?page=carousel';
+  const html = `
+    <html>
+      <body>
+        <p>Open this URL in a new tab:</p>
+        <p><a href="${url}" target="_blank">${url}</a></p>
+        <script>
+          window.open('${url}', '_blank');
+          google.script.host.close();
+        </script>
+      </body>
+    </html>
+  `;
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(400).setHeight(150),
+    'Display Carousel'
   );
 }
 

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Panopticon Display Carousel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+    }
+
+    #carousel-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: none;
+    }
+
+    iframe.active {
+      display: block;
+    }
+
+    .carousel-controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.9);
+      border: 2px solid #00ff00;
+      border-radius: 30px;
+      padding: 15px 25px;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      z-index: 10000;
+      box-shadow: 0 5px 20px rgba(0, 255, 0, 0.3);
+    }
+
+    .page-indicator {
+      color: #00ff00;
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+
+    .timer {
+      color: #00ffff;
+      font-size: 12px;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .control-btn {
+      background: rgba(0, 255, 0, 0.2);
+      border: 1px solid #00ff00;
+      color: #00ff00;
+      padding: 8px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      transition: all 0.3s;
+    }
+
+    .control-btn:hover {
+      background: rgba(0, 255, 0, 0.4);
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+    }
+
+    .control-btn:active {
+      transform: scale(0.95);
+    }
+
+    .pause-btn.paused {
+      background: rgba(255, 165, 0, 0.3);
+      border-color: #FFA500;
+      color: #FFA500;
+    }
+
+    .dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(0, 255, 0, 0.3);
+      border: 1px solid #00ff00;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .dot.active {
+      background: #00ff00;
+      box-shadow: 0 0 10px #00ff00;
+    }
+
+    .loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #00ff00;
+      font-size: 24px;
+      z-index: 9999;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+  <div id="carousel-container">
+    <div class="loading" id="loading">LOADING DISPLAYS...</div>
+  </div>
+
+  <div class="carousel-controls">
+    <button class="control-btn" onclick="prevPage()">◄ PREV</button>
+    <div class="dots" id="dots"></div>
+    <div class="page-indicator" id="pageIndicator">LOADING...</div>
+    <div class="timer" id="timer">30s</div>
+    <button class="control-btn pause-btn" id="pauseBtn" onclick="togglePause()">PAUSE</button>
+    <button class="control-btn" onclick="nextPage()">NEXT ►</button>
+  </div>
+
+  <script>
+    // Configuration
+    const PAGES = [
+      { name: 'WALL', url: '?page=wall', duration: 30000 },
+      { name: 'MATCHER', url: '?page=mm', duration: 60000 }
+    ];
+
+    let currentIndex = 0;
+    let isPaused = false;
+    let timer = null;
+    let countdownTimer = null;
+    let timeRemaining = 0;
+    let iframes = [];
+
+    // Initialize
+    function init() {
+      const container = document.getElementById('carousel-container');
+      const dotsContainer = document.getElementById('dots');
+
+      // Create iframes for each page
+      PAGES.forEach((page, index) => {
+        const iframe = document.createElement('iframe');
+        iframe.id = `iframe-${index}`;
+        iframe.src = page.url;
+        if (index === 0) iframe.classList.add('active');
+        container.appendChild(iframe);
+        iframes.push(iframe);
+
+        // Create dot indicator
+        const dot = document.createElement('div');
+        dot.className = 'dot' + (index === 0 ? ' active' : '');
+        dot.onclick = () => goToPage(index);
+        dotsContainer.appendChild(dot);
+      });
+
+      // Hide loading
+      setTimeout(() => {
+        document.getElementById('loading').style.display = 'none';
+      }, 2000);
+
+      updateIndicator();
+      startTimer();
+    }
+
+    function updateIndicator() {
+      document.getElementById('pageIndicator').textContent = PAGES[currentIndex].name;
+
+      // Update dots
+      document.querySelectorAll('.dot').forEach((dot, i) => {
+        dot.classList.toggle('active', i === currentIndex);
+      });
+    }
+
+    function startTimer() {
+      if (timer) clearInterval(timer);
+      if (countdownTimer) clearInterval(countdownTimer);
+
+      timeRemaining = PAGES[currentIndex].duration;
+      updateTimerDisplay();
+
+      // Countdown display
+      countdownTimer = setInterval(() => {
+        if (!isPaused) {
+          timeRemaining -= 1000;
+          updateTimerDisplay();
+        }
+      }, 1000);
+
+      // Auto-advance
+      timer = setInterval(() => {
+        if (!isPaused) {
+          nextPage();
+        }
+      }, PAGES[currentIndex].duration);
+    }
+
+    function updateTimerDisplay() {
+      const seconds = Math.ceil(timeRemaining / 1000);
+      document.getElementById('timer').textContent = seconds + 's';
+    }
+
+    function showPage(index) {
+      // Hide all iframes
+      iframes.forEach(iframe => iframe.classList.remove('active'));
+
+      // Show current iframe
+      iframes[index].classList.add('active');
+
+      currentIndex = index;
+      updateIndicator();
+      startTimer();
+    }
+
+    function nextPage() {
+      const nextIndex = (currentIndex + 1) % PAGES.length;
+      showPage(nextIndex);
+    }
+
+    function prevPage() {
+      const prevIndex = (currentIndex - 1 + PAGES.length) % PAGES.length;
+      showPage(prevIndex);
+    }
+
+    function goToPage(index) {
+      showPage(index);
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      const btn = document.getElementById('pauseBtn');
+
+      if (isPaused) {
+        btn.textContent = 'RESUME';
+        btn.classList.add('paused');
+      } else {
+        btn.textContent = 'PAUSE';
+        btn.classList.remove('paused');
+      }
+    }
+
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+      switch(e.key) {
+        case 'ArrowLeft':
+          prevPage();
+          break;
+        case 'ArrowRight':
+          nextPage();
+          break;
+        case ' ':
+          togglePause();
+          e.preventDefault();
+          break;
+      }
+    });
+
+    // Start on page load
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>
