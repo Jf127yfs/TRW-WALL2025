@@ -1,0 +1,97 @@
+function testBackend() {
+  showMessage('Testing backend...', 'info');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      showMessage('✅ ' + result.message, 'success');
+      console.log('Backend response:', result);
+    })
+    .withFailureHandler(function(error) {
+      showMessage('❌ Backend error: ' + error.message, 'error');
+      console.error('Connection failed:', error);
+    })
+    .testConnection();
+}
+
+function testBasicAccess() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    Logger.log('✅ Can access spreadsheet: ' + ss.getName());
+    
+    const sheet = ss.getSheetByName('FRC');
+    if (!sheet) {
+      Logger.log('❌ FRC sheet not found!');
+      Logger.log('Available sheets: ' + ss.getSheets().map(s => s.getName()).join(', '));
+      return;
+    }
+    
+    Logger.log('✅ Can access FRC sheet');
+    Logger.log('✅ Row count: ' + sheet.getLastRow());
+    
+    return {success: true, message: 'All permissions OK'};
+    
+  } catch (error) {
+    Logger.log('❌ ERROR: ' + error.toString());
+    return {success: false, message: error.toString()};
+  }
+}
+
+function quickTest() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('Spreadsheet: ' + ss.getName());
+  
+  const sheets = ss.getSheets().map(s => s.getName());
+  Logger.log('All sheets: ' + sheets.join(', '));
+  
+  // Try to get FRC
+  let frc = ss.getSheetByName('FRC');
+  if (!frc) {
+    frc = ss.getSheetByName('Form Responses (Clean)');
+  }
+  
+  if (frc) {
+    Logger.log('Found sheet: ' + frc.getName());
+    const headers = frc.getRange(1, 1, 1, 30).getValues()[0];
+    Logger.log('Headers: ' + JSON.stringify(headers));
+  } else {
+    Logger.log('❌ NO SHEET FOUND!');
+  }
+}
+function testWithRealData() {
+  Logger.log('=== TESTING CHECK-IN WITH REAL DATA ===');
+  
+  // Use the exact values from your screenshot
+  const result = checkInGuest('64110', 'man', '10/07');
+  
+  Logger.log('Result: ' + JSON.stringify(result, null, 2));
+  
+  return result;
+}
+
+function analyzeCheckedInGuests() {
+  Logger.log('=== ANALYZING CHECKED-IN GUESTS ===\n');
+  
+  const guests = getCheckedInGuests();
+  
+  Logger.log(`Total checked-in guests: ${guests.length}`);
+  
+  if (guests.length > 0) {
+    Logger.log('\n=== SAMPLE GUEST DATA ===');
+    const sample = guests[0];
+    Logger.log(JSON.stringify(sample, null, 2));
+    
+    Logger.log('\n=== DATA COMPLETENESS ===');
+    const withPhotos = guests.filter(g => g.photoUrl).length;
+    const withInterests = guests.filter(g => g.interest1 || g.interest2 || g.interest3).length;
+    const withMusic = guests.filter(g => g.music).length;
+    
+    Logger.log(`- Guests with photos: ${withPhotos}/${guests.length}`);
+    Logger.log(`- Guests with interests: ${withInterests}/${guests.length}`);
+    Logger.log(`- Guests with music prefs: ${withMusic}/${guests.length}`);
+  }
+  
+  return {
+    total: guests.length,
+    sampleGuest: guests.length > 0 ? guests[0] : null
+  };
+}
+
