@@ -1,6 +1,7 @@
 # App Code Description — Panopticon + Compatibility Stack
 
 CheckInInterface.html and Checkincode should not be messed with as is working fine. 
+Google script compatability Only
 Scope of analytics: Only run on guests with Checked-In = "Y" in Form Responses (Clean) column AB.
 Function changes: add new behavior via new functions (e.g., foo_v2()), don’t silently refactor. Comment why.
 
