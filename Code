@@ -75,6 +75,9 @@ function onOpen() {
     .addItem('✅ Open Check-In Interface', 'openCheckIn')
     .addItem('🧪 Test Check-In System', 'testCheckInSystem')
     .addSeparator()
+    .addItem('🎃 Open Compatibility Matcher (MM)', 'openMM')
+    .addItem('🧮 Test Compatibility Matches', 'testCompatibilityMatches')
+    .addSeparator()
     .addItem('📈 Generate Master Description', 'generateMasterDesc')
     .addItem('🔍 View Tool Registry', 'viewToolRegistry')
     .addSeparator()
@@ -117,7 +120,13 @@ function doGet(e) {
           .evaluate()
           .setTitle('Check-In Test')
           .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-      
+
+      case 'mm':
+        return HtmlService.createTemplateFromFile('MM')
+          .evaluate()
+          .setTitle('Compatibility Matcher - MM')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
       case 'display':
       default:
         return createSimpleDisplay();
@@ -375,6 +384,26 @@ function openCheckIn() {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createHtmlOutput(html).setWidth(400).setHeight(150),
     'Check-In Interface'
+  );
+}
+
+function openMM() {
+  const url = ScriptApp.getService().getUrl() + '?page=mm';
+  const html = `
+    <html>
+      <body>
+        <p>Open this URL in a new tab:</p>
+        <p><a href="${url}" target="_blank">${url}</a></p>
+        <script>
+          window.open('${url}', '_blank');
+          google.script.host.close();
+        </script>
+      </body>
+    </html>
+  `;
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(400).setHeight(150),
+    'Compatibility Matcher (MM)'
   );
 }
 
@@ -854,11 +883,201 @@ function uploadGuestPhoto(uidOrPayload, fileName, mimeType, base64Data) {
   }
 }
 
+// ============================================================================
+// PHASE 3: COMPATIBILITY MATCHER (MM) - CRAMÉR'S V ANALYSIS
+// ============================================================================
+
+/**
+ * TRIGGER SETUP NOTES:
+ * =====================
+ * To auto-refresh matches, create a time-driven trigger:
+ * 1. Go to Extensions → Apps Script → Triggers
+ * 2. Add Trigger → getCompatibilityMatches → Time-driven → Every 15 minutes
+ *
+ * This will recalculate matches as new guests check in.
+ */
+
+/**
+ * Get compatibility matches for checked-in guests
+ * Called by MM interface (?page=mm)
+ *
+ * Returns array of match objects with Cramér's V scores
+ */
+function getCompatibilityMatches() {
+  Logger.log('=== GENERATING COMPATIBILITY MATCHES ===');
+
+  const guests = getCheckedInGuests();
+  Logger.log(`Analyzing ${guests.length} checked-in guests`);
+
+  const matches = [];
+  const MIN_CRAMERS_V = 0.60; // Minimum threshold for matches
+
+  // Compare every pair of guests
+  for (let i = 0; i < guests.length; i++) {
+    for (let j = i + 1; j < guests.length; j++) {
+      const guest1 = guests[i];
+      const guest2 = guests[j];
+
+      // Calculate compatibility score (Cramér's V)
+      const result = calculateCompatibilityScore(guest1, guest2);
+
+      // Only include matches above threshold
+      if (result.cramersV >= MIN_CRAMERS_V) {
+        matches.push({
+          person1: {
+            screenName: guest1.screenName,
+            uid: guest1.uid,
+            photoUrl: guest1.photoUrl || '',
+            music: guest1.music,
+            zodiac: guest1.zodiac,
+            interests: [guest1.interest1, guest1.interest2, guest1.interest3].filter(Boolean),
+            socialStance: guest1.socialStance,
+            atWorst: guest1.atWorst
+          },
+          person2: {
+            screenName: guest2.screenName,
+            uid: guest2.uid,
+            photoUrl: guest2.photoUrl || '',
+            music: guest2.music,
+            zodiac: guest2.zodiac,
+            interests: [guest2.interest1, guest2.interest2, guest2.interest3].filter(Boolean),
+            socialStance: guest2.socialStance,
+            atWorst: guest2.atWorst
+          },
+          similarity: result.cramersV,
+          sharedInterests: result.sharedInterests,
+          breakdown: result.breakdown
+        });
+      }
+    }
+  }
+
+  // Sort by highest compatibility first
+  matches.sort((a, b) => b.similarity - a.similarity);
+
+  Logger.log(`✅ Generated ${matches.length} matches above ${MIN_CRAMERS_V} threshold`);
+
+  return {
+    matches: matches,
+    totalGuests: guests.length,
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Calculate compatibility score between two guests using Cramér's V
+ *
+ * Weighting:
+ * - 40% Interests (shared interests count)
+ * - 15% Music (exact match)
+ * - 10% Purchase (exact match)
+ * - 35% At Worst (same trait match)
+ *
+ * Returns Cramér's V score (0 to 1) plus breakdown
+ */
+function calculateCompatibilityScore(guest1, guest2) {
+  const breakdown = {
+    interests: 0,
+    music: 0,
+    purchase: 0,
+    atWorst: 0,
+    socialStance: 0
+  };
+
+  // 1. INTERESTS MATCHING (40% weight)
+  const interests1 = [guest1.interest1, guest1.interest2, guest1.interest3]
+    .filter(i => i && i !== 'N/A');
+  const interests2 = [guest2.interest1, guest2.interest2, guest2.interest3]
+    .filter(i => i && i !== 'N/A');
+
+  const sharedInterests = interests1.filter(i => interests2.includes(i));
+  const maxInterests = Math.max(interests1.length, interests2.length);
+
+  if (maxInterests > 0) {
+    breakdown.interests = sharedInterests.length / maxInterests;
+  }
+
+  // 2. MUSIC MATCHING (15% weight) - Exact match only
+  if (guest1.music && guest2.music && guest1.music === guest2.music) {
+    breakdown.music = 1.0;
+  }
+
+  // 3. PURCHASE MATCHING (10% weight) - Exact match only
+  if (guest1.recentPurchase && guest2.recentPurchase &&
+      guest1.recentPurchase === guest2.recentPurchase) {
+    breakdown.purchase = 1.0;
+  }
+
+  // 4. AT WORST MATCHING (35% weight) - Same trait = match
+  if (guest1.atWorst && guest2.atWorst &&
+      guest1.atWorst === guest2.atWorst) {
+    breakdown.atWorst = 1.0;
+  }
+
+  // 5. SOCIAL STANCE MATCHING (bonus, distance-based)
+  // Values: 1=Introverted, 2=Shy, 3=Moderate, 4=Outgoing, 5=Extroverted
+  const social1 = parseInt(guest1.socialStance) || 3;
+  const social2 = parseInt(guest2.socialStance) || 3;
+  const socialDiff = Math.abs(social1 - social2);
+
+  // Perfect match = 1.0, each point apart reduces score
+  breakdown.socialStance = Math.max(0, 1 - (socialDiff * 0.25));
+
+  // CALCULATE WEIGHTED CRAMÉR'S V
+  const cramersV =
+    (breakdown.interests * 0.40) +    // 40% interests
+    (breakdown.music * 0.15) +        // 15% music
+    (breakdown.purchase * 0.10) +     // 10% purchase
+    (breakdown.atWorst * 0.35);       // 35% at worst
+
+  return {
+    cramersV: cramersV,
+    sharedInterests: sharedInterests,
+    breakdown: breakdown
+  };
+}
+
+/**
+ * Helper: Get social stance label
+ */
+function getSocialStanceLabel(value) {
+  const val = parseInt(value);
+  if (val === 1) return 'Introverted';
+  if (val === 2) return 'Shy';
+  if (val === 3) return 'Moderate';
+  if (val === 4) return 'Outgoing';
+  if (val === 5) return 'Extroverted';
+  return 'Unknown';
+}
+
+/**
+ * Test function - Generate and log compatibility matches
+ */
+function testCompatibilityMatches() {
+  const result = getCompatibilityMatches();
+
+  Logger.log('\n=== COMPATIBILITY MATCHES TEST ===');
+  Logger.log(`Total Guests: ${result.totalGuests}`);
+  Logger.log(`Matches Found: ${result.matches.length}`);
+
+  if (result.matches.length > 0) {
+    Logger.log('\n=== TOP 5 MATCHES ===');
+    result.matches.slice(0, 5).forEach((match, idx) => {
+      Logger.log(`\n${idx + 1}. ${match.person1.screenName} ↔ ${match.person2.screenName}`);
+      Logger.log(`   Cramér's V: ${(match.similarity * 100).toFixed(1)}%`);
+      Logger.log(`   Shared Interests: ${match.sharedInterests.join(', ')}`);
+      Logger.log(`   Breakdown:`, match.breakdown);
+    });
+  }
+
+  return result;
+}
+
 /**
  * ============================================================================
  * NEXT BUILD PHASES (placeholders):
- * - Phase 3: Analytics layer (Pan_Master, similarity calculations)
- * - Phase 4: Visualization endpoints (wall data, compatibility matches)
+ * - Phase 3: Analytics layer (Pan_Master, similarity calculations) ✓ COMPLETED
+ * - Phase 4: Visualization endpoints (wall data, compatibility matches) ✓ COMPLETED
  * - Phase 5: Documentation automation (Master_Desc, Tool_Registry)
  * ============================================================================
  */
