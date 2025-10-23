@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Display</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+      color: #00ff88;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+      height: 100vh;
+    }
+
+    .screen-container {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+    }
+
+    .screen {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      transform: scale(0.98);
+      transition: opacity 0.6s ease-in-out, transform 0.6s ease-in-out;
+      pointer-events: none;
+    }
+
+    .screen.active {
+      opacity: 1;
+      transform: scale(1);
+      pointer-events: auto;
+    }
+
+    .screen iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: transparent;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, rgba(10, 10, 10, 0.95) 0%, rgba(26, 26, 46, 0.95) 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+      transition: opacity 0.5s;
+    }
+    
+    .screen.loaded .loading-overlay {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loader-spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(0, 255, 136, 0.1);
+      border-top-color: #00ff88;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loader-text {
+      font-size: 18px;
+      text-shadow: 0 0 10px #00ff88;
+      animation: pulse-text 2s ease-in-out infinite;
+      letter-spacing: 2px;
+    }
+
+    @keyframes pulse-text {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .error-text {
+      font-size: 16px;
+      color: #ff3366;
+      text-shadow: 0 0 10px #ff3366;
+      margin-top: 20px;
+      text-align: center;
+      padding: 20px;
+      border: 2px solid #ff3366;
+      border-radius: 8px;
+      background: rgba(255, 51, 102, 0.05);
+      max-width: 600px;
+      display: none;
+    }
+
+    .transition-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #000000 0%, #1a1a2e 50%, #000000 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 9999;
+      transition: opacity 0.4s ease-in-out;
+    }
+
+    .transition-overlay.active {
+      opacity: 1;
+    }
+
+    .transition-icon {
+      font-size: 80px;
+      margin-bottom: 30px;
+      animation: bounce 1s ease-in-out infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+
+    .transition-text {
+      font-size: 48px;
+      color: #00ff88;
+      text-shadow: 0 0 30px rgba(0, 255, 136, 0.8);
+      letter-spacing: 4px;
+      margin-bottom: 15px;
+      font-weight: bold;
+    }
+
+    .transition-subtitle {
+      font-size: 20px;
+      color: #ff00cc;
+      letter-spacing: 3px;
+      text-shadow: 0 0 20px rgba(255, 0, 204, 0.6);
+    }
+
+    .progress-container {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: rgba(0, 0, 0, 0.3);
+      z-index: 10000;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #00ff88 0%, #ff00cc 100%);
+      width: 0%;
+      transition: width 0.1s linear;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .progress-bar::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+      animation: shimmer 2s infinite;
+    }
+
+    @keyframes shimmer {
+      to { left: 100%; }
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      padding: 20px;
+      border-radius: 15px;
+      color: #00ff88;
+      z-index: 10000;
+      font-size: 14px;
+      box-shadow: 0 10px 40px rgba(0, 255, 136, 0.2);
+      min-width: 220px;
+    }
+
+    .controls-header {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(0, 255, 136, 0.2);
+    }
+
+    .controls-row {
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .controls-row:last-of-type {
+      margin-bottom: 0;
+    }
+
+    .control-label {
+      color: #888;
+      font-size: 13px;
+    }
+
+    .control-value {
+      color: #ff00cc;
+      font-weight: bold;
+      font-size: 18px;
+      text-shadow: 0 0 8px rgba(255, 0, 204, 0.6);
+      min-width: 40px;
+      text-align: right;
+    }
+
+    .control-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid rgba(0, 255, 136, 0.2);
+    }
+
+    .control-btn {
+      flex: 1;
+      background: rgba(0, 255, 136, 0.1);
+      border: 1px solid rgba(0, 255, 136, 0.4);
+      color: #00ff88;
+      padding: 10px 8px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      border-radius: 6px;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: bold;
+    }
+
+    .control-btn:hover {
+      background: rgba(0, 255, 136, 0.2);
+      border-color: #00ff88;
+      box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .control-btn:active {
+      transform: translateY(0);
+    }
+
+    .control-btn.pause-active {
+      background: rgba(255, 0, 204, 0.2);
+      border-color: #ff00cc;
+      color: #ff00cc;
+    }
+
+    .settings-btn {
+      position: fixed;
+      top: 30px;
+      right: 30px;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(255, 0, 204, 0.3);
+      color: #ff00cc;
+      padding: 12px 20px;
+      font-size: 13px;
+      border-radius: 10px;
+      cursor: pointer;
+      z-index: 10000;
+      box-shadow: 0 10px 40px rgba(255, 0, 204, 0.2);
+      transition: all 0.3s ease;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    
+    .settings-btn:hover {
+      background: rgba(255, 0, 204, 0.1);
+      border-color: #ff00cc;
+      box-shadow: 0 10px 40px rgba(255, 0, 204, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .update-panel {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.9);
+      background: rgba(0, 0, 0, 0.95);
+      backdrop-filter: blur(20px);
+      border: 2px solid rgba(255, 0, 204, 0.5);
+      padding: 30px;
+      border-radius: 15px;
+      color: #ff00cc;
+      z-index: 10001;
+      font-size: 13px;
+      box-shadow: 0 20px 60px rgba(255, 0, 204, 0.4);
+      width: 500px;
+      max-width: 90vw;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.4s ease;
+    }
+
+    .update-panel.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .update-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #00ff88;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.6);
+    }
+
+    .update-description {
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .update-input {
+      width: 100%;
+      background: rgba(0, 255, 136, 0.05);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      color: #00ff88;
+      padding: 12px 15px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      transition: all 0.3s ease;
+    }
+
+    .update-input:focus {
+      outline: none;
+      border-color: #00ff88;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+      background: rgba(0, 255, 136, 0.1);
+    }
+
+    .update-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    .update-btn {
+      flex: 1;
+      background: rgba(255, 0, 204, 0.1);
+      border: 2px solid rgba(255, 0, 204, 0.4);
+      color: #ff00cc;
+      padding: 12px 20px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      border-radius: 8px;
+      transition: all 0.3s ease;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .update-btn:hover {
+      background: rgba(255, 0, 204, 0.2);
+      border-color: #ff00cc;
+      box-shadow: 0 0 20px rgba(255, 0, 204, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .update-btn.primary {
+      background: rgba(0, 255, 136, 0.1);
+      border-color: rgba(0, 255, 136, 0.4);
+      color: #00ff88;
+    }
+
+    .update-btn.primary:hover {
+      background: rgba(0, 255, 136, 0.2);
+      border-color: #00ff88;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
+    }
+
+    .update-status {
+      margin-top: 15px;
+      padding: 12px;
+      font-size: 12px;
+      border-radius: 8px;
+      display: none;
+      text-align: center;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .update-status.success {
+      background: rgba(0, 255, 136, 0.1);
+      border: 1px solid rgba(0, 255, 136, 0.4);
+      color: #00ff88;
+      display: block;
+    }
+
+    .update-status.error {
+      background: rgba(255, 51, 102, 0.1);
+      border: 1px solid rgba(255, 51, 102, 0.4);
+      color: #ff3366;
+      display: block;
+    }
+
+    .shortcuts-btn {
+      position: fixed;
+      bottom: 30px;
+      left: 30px;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      color: #00ff88;
+      padding: 10px 15px;
+      font-size: 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      z-index: 10000;
+      box-shadow: 0 10px 40px rgba(0, 255, 136, 0.2);
+      transition: all 0.3s ease;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+    }
+
+    .shortcuts-btn:hover {
+      background: rgba(0, 255, 136, 0.1);
+      border-color: #00ff88;
+      box-shadow: 0 10px 40px rgba(0, 255, 136, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .shortcuts-panel {
+      position: fixed;
+      bottom: 80px;
+      left: 30px;
+      background: rgba(0, 0, 0, 0.95);
+      backdrop-filter: blur(20px);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      padding: 20px;
+      border-radius: 15px;
+      color: #00ff88;
+      z-index: 10000;
+      font-size: 12px;
+      box-shadow: 0 20px 60px rgba(0, 255, 136, 0.3);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(10px);
+      transition: all 0.3s ease;
+    }
+
+    .shortcuts-panel.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    .shortcuts-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 20px;
+    }
+
+    .shortcuts-key {
+      background: rgba(0, 255, 136, 0.1);
+      border: 1px solid rgba(0, 255, 136, 0.4);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .shortcuts-desc {
+      color: #888;
+    }
+
+    .screen-info {
+      position: fixed;
+      top: 30px;
+      left: 30px;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(0, 255, 136, 0.3);
+      color: #00ff88;
+      padding: 15px 25px;
+      border-radius: 10px;
+      z-index: 9998;
+      font-size: 14px;
+      box-shadow: 0 10px 40px rgba(0, 255, 136, 0.2);
+      animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .screen-info-title {
+      font-weight: bold;
+      font-size: 16px;
+      margin-bottom: 5px;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.6);
+    }
+
+    .screen-info-subtitle {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen-info" id="screenInfo">
+    <div class="screen-info-title" id="infoTitle">LOADING...</div>
+    <div class="screen-info-subtitle" id="infoSubtitle">SYSTEM INITIALIZING</div>
+  </div>
+
+  <div class="screen-container">
+    <div class="screen active" id="screen-wall">
+      <div class="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">LOADING GUEST WALL</div>
+        <div class="error-text" id="error-wall"></div>
+      </div>
+      <iframe src="" onload="handleIframeLoad(this)" onerror="handleIframeError(this, 'wall')"></iframe>
+    </div>
+    
+    <div class="screen" id="screen-mm">
+      <div class="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">LOADING COMPATIBILITY MATCHER</div>
+        <div class="error-text" id="error-mm"></div>
+      </div>
+      <iframe src="" onload="handleIframeLoad(this)" onerror="handleIframeError(this, 'mm')"></iframe>
+    </div>
+    
+    <div class="screen" id="screen-msa">
+      <div class="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">LOADING MSA ANALYSIS</div>
+        <div class="error-text" id="error-msa"></div>
+      </div>
+      <iframe src="" onload="handleIframeLoad(this)" onerror="handleIframeError(this, 'msa')"></iframe>
+    </div>
+    
+    <div class="screen" id="screen-network">
+      <div class="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">LOADING NETWORK ANALYSIS</div>
+        <div class="error-text" id="error-network"></div>
+      </div>
+      <iframe src="" onload="handleIframeLoad(this)" onerror="handleIframeError(this, 'network')"></iframe>
+    </div>
+    
+    <div class="screen" id="screen-map">
+      <div class="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">LOADING ZIP NETWORK MAP</div>
+        <div class="error-text" id="error-map"></div>
+      </div>
+      <iframe src="" onload="handleIframeLoad(this)" onerror="handleIframeError(this, 'map')"></iframe>
+    </div>
+    
+    <div class="screen" id="screen-checkin">
+      <div class="loading-overlay">
+        <div class="loader-spinner"></div>
+        <div class="loader-text">LOADING CHECK-IN PORTAL</div>
+        <div class="error-text" id="error-checkin"></div>
+      </div>
+      <iframe src="" onload="handleIframeLoad(this)" onerror="handleIframeError(this, 'checkin')"></iframe>
+    </div>
+  </div>
+
+  <div class="transition-overlay" id="transitionOverlay">
+    <div class="transition-icon" id="transitionIcon">🔄</div>
+    <div class="transition-text" id="transitionText">LOADING</div>
+    <div class="transition-subtitle" id="transitionSubtitle">PLEASE WAIT</div>
+  </div>
+
+  <div class="progress-container">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <button class="settings-btn" id="settingsBtn">⚙️ SETTINGS</button>
+
+  <div class="controls" id="controls">
+    <div class="controls-header">🎮 Display Control</div>
+    <div class="controls-row">
+      <span class="control-label">Screen</span>
+      <span class="control-value">
+        <span id="currentScreen">1</span>/<span id="totalScreens">6</span>
+      </span>
+    </div>
+    <div class="controls-row">
+      <span class="control-label">Next in</span>
+      <span class="control-value"><span id="countdown">30</span>s</span>
+    </div>
+    <div class="control-buttons">
+      <button class="control-btn" id="prevBtn">◀ PREV</button>
+      <button class="control-btn" id="pauseBtn">⏸ PAUSE</button>
+      <button class="control-btn" id="nextBtn">NEXT ▶</button>
+    </div>
+  </div>
+
+  <button class="shortcuts-btn" id="shortcutsBtn">⌨️ SHORTCUTS</button>
+  <div class="shortcuts-panel" id="shortcutsPanel">
+    <div class="shortcuts-item">
+      <span class="shortcuts-key">SPACE</span>
+      <span class="shortcuts-desc">Pause/Resume</span>
+    </div>
+    <div class="shortcuts-item">
+      <span class="shortcuts-key">← →</span>
+      <span class="shortcuts-desc">Navigate Screens</span>
+    </div>
+    <div class="shortcuts-item">
+      <span class="shortcuts-key">Ctrl+U</span>
+      <span class="shortcuts-desc">Update URL</span>
+    </div>
+    <div class="shortcuts-item">
+      <span class="shortcuts-key">ESC</span>
+      <span class="shortcuts-desc">Close Panels</span>
+    </div>
+  </div>
+
+  <div class="update-panel" id="updatePanel">
+    <div class="update-title">🔧 Update Deployment URL</div>
+    <div class="update-description">
+      Enter your Google Apps Script deployment URL below. This will be saved to your browser's local storage.
+    </div>
+    <input 
+      type="text" 
+      id="urlInput" 
+      class="update-input" 
+      placeholder="https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
+    />
+    <div class="update-buttons">
+      <button class="update-btn" id="cancelBtn">✖ CANCEL</button>
+      <button class="update-btn primary" id="saveBtn">💾 SAVE & RELOAD</button>
+    </div>
+    <div class="update-status" id="updateStatus"></div>
+  </div>
+
+  <script>
+    const TIME_PER_SCREEN = 30000;
+    const TRANSITION_DURATION = 1000;
+    const STORAGE_KEY = 'appsScriptDeploymentUrl';
+
+    // ✅ ENHANCED: Added MSA and Network to rotation
+    const SCREENS = [
+      { id: 'screen-wall', page: 'wall', title: 'GUEST WALL', subtitle: 'LIVE ACTIVITY', icon: '👥' },
+      { id: 'screen-mm', page: 'mm', title: 'COMPATIBILITY', subtitle: 'MATCHMAKING', icon: '💕' },
+      { id: 'screen-msa', page: 'msa', title: 'MSA ANALYSIS', subtitle: 'CATEGORY VISUALIZATION', icon: '🧬' },
+      { id: 'screen-network', page: 'network', title: 'NETWORK GRAPH', subtitle: 'CONNECTION MAP', icon: '🌐' },
+      { id: 'screen-map', page: 'map', title: 'ZIP NETWORK', subtitle: 'KANSAS CITY MAP', icon: '🗺️' },
+      { id: 'screen-checkin', page: 'checkin', title: 'CHECK-IN', subtitle: 'REGISTRATION', icon: '📝' }
+    ];
+
+    let currentIndex = 0;
+    let isPaused = false;
+    let remainingTime = TIME_PER_SCREEN;
+    let lastTime = Date.now();
+    let progressIntervalId;
+    let baseUrl = '';
+
+    const elements = {
+      screens: document.querySelectorAll('.screen'),
+      transitionOverlay: document.getElementById('transitionOverlay'),
+      transitionText: document.getElementById('transitionText'),
+      transitionSubtitle: document.getElementById('transitionSubtitle'),
+      transitionIcon: document.getElementById('transitionIcon'),
+      progressBar: document.getElementById('progressBar'),
+      currentScreenEl: document.getElementById('currentScreen'),
+      totalScreensEl: document.getElementById('totalScreens'),
+      countdown: document.getElementById('countdown'),
+      pauseBtn: document.getElementById('pauseBtn'),
+      nextBtn: document.getElementById('nextBtn'),
+      prevBtn: document.getElementById('prevBtn'),
+      settingsBtn: document.getElementById('settingsBtn'),
+      updatePanel: document.getElementById('updatePanel'),
+      urlInput: document.getElementById('urlInput'),
+      saveBtn: document.getElementById('saveBtn'),
+      cancelBtn: document.getElementById('cancelBtn'),
+      updateStatus: document.getElementById('updateStatus'),
+      shortcutsBtn: document.getElementById('shortcutsBtn'),
+      shortcutsPanel: document.getElementById('shortcutsPanel'),
+      screenInfo: document.getElementById('screenInfo'),
+      infoTitle: document.getElementById('infoTitle'),
+      infoSubtitle: document.getElementById('infoSubtitle')
+    };
+
+    elements.totalScreensEl.textContent = SCREENS.length;
+
+    function getBaseUrl() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) return stored;
+      
+      const currentUrl = window.location.href.split('?')[0];
+      return currentUrl.replace(/(\/exec)\/.*/, '$1');
+    }
+
+    function saveBaseUrl(url) {
+      try {
+        const cleanUrl = url.split('?')[0].replace(/(\/exec)\/.*/, '$1');
+        localStorage.setItem(STORAGE_KEY, cleanUrl);
+        return true;
+      } catch (e) {
+        console.error('Failed to save URL:', e);
+        return false;
+      }
+    }
+
+    function initializeScreens() {
+      baseUrl = getBaseUrl();
+      
+      elements.screens.forEach((screenEl) => {
+        const config = SCREENS.find(s => s.id === screenEl.id);
+        if (config) {
+          const iframe = screenEl.querySelector('iframe');
+          iframe.src = baseUrl + '?page=' + config.page;
+          screenEl.classList.remove('loaded');
+        } else {
+          screenEl.classList.remove('active');
+          const iframe = screenEl.querySelector('iframe');
+          if (iframe) iframe.src = '';
+        }
+      });
+      
+      updateScreenInfo();
+      transitionToScreen(0);
+    }
+
+    function transitionToScreen(index) {
+      elements.transitionOverlay.classList.add('active');
+      elements.screens.forEach(screen => screen.classList.remove('active'));
+
+      currentIndex = ((index % SCREENS.length) + SCREENS.length) % SCREENS.length;
+      const currentScreen = SCREENS[currentIndex];
+      
+      elements.transitionText.textContent = currentScreen.title;
+      elements.transitionSubtitle.textContent = currentScreen.subtitle;
+      elements.transitionIcon.textContent = currentScreen.icon;
+
+      setTimeout(() => {
+        const targetScreenEl = document.getElementById(currentScreen.id);
+        if (targetScreenEl) {
+          targetScreenEl.classList.add('active');
+        }
+
+        setTimeout(() => {
+          elements.transitionOverlay.classList.remove('active');
+        }, 400);
+        
+        elements.currentScreenEl.textContent = currentIndex + 1;
+        updateScreenInfo();
+        remainingTime = TIME_PER_SCREEN;
+        lastTime = Date.now();
+      }, TRANSITION_DURATION);
+    }
+
+    function updateScreenInfo() {
+      const currentScreen = SCREENS[currentIndex];
+      elements.infoTitle.textContent = `${currentScreen.icon} ${currentScreen.title}`;
+      elements.infoSubtitle.textContent = currentScreen.subtitle;
+    }
+
+    function nextScreen() {
+      transitionToScreen(currentIndex + 1);
+    }
+
+    function prevScreen() {
+      transitionToScreen(currentIndex - 1);
+    }
+
+    function updateProgress() {
+      if (!isPaused) {
+        const now = Date.now();
+        const elapsed = now - lastTime;
+        remainingTime -= elapsed;
+        lastTime = now;
+
+        if (remainingTime <= 0) {
+          nextScreen();
+          remainingTime = TIME_PER_SCREEN;
+        }
+
+        const progress = ((TIME_PER_SCREEN - remainingTime) / TIME_PER_SCREEN) * 100;
+        elements.progressBar.style.width = progress + '%';
+        elements.countdown.textContent = Math.ceil(remainingTime / 1000);
+      }
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      elements.pauseBtn.innerHTML = isPaused ? '▶ RESUME' : '⏸ PAUSE';
+      elements.pauseBtn.classList.toggle('pause-active', isPaused);
+      if (!isPaused) {
+        lastTime = Date.now();
+      }
+    }
+
+    function showStatus(message, type) {
+      elements.updateStatus.textContent = message;
+      elements.updateStatus.className = 'update-status ' + type;
+      setTimeout(() => {
+        elements.updateStatus.className = 'update-status';
+      }, 3000);
+    }
+
+    function handleIframeLoad(iframe) {
+      iframe.parentNode.classList.add('loaded');
+    }
+
+    function handleIframeError(iframe, pageName) {
+      const screenEl = iframe.parentNode;
+      screenEl.classList.add('loaded');
+
+      const overlay = screenEl.querySelector('.loading-overlay');
+      const errorTextEl = overlay.querySelector('.error-text');
+      const loaderTextEl = overlay.querySelector('.loader-text');
+      const spinnerEl = overlay.querySelector('.loader-spinner');
+
+      if (loaderTextEl) loaderTextEl.style.display = 'none';
+      if (spinnerEl) spinnerEl.style.display = 'none';
+
+      if (errorTextEl) {
+        errorTextEl.textContent = `⚠️ Unable to load ${pageName.toUpperCase()} page. Please check your deployment URL and ensure the ${pageName}.html file exists.`;
+        errorTextEl.style.display = 'block';
+      }
+
+      isPaused = true;
+      elements.pauseBtn.innerHTML = '▶ RESUME';
+      elements.pauseBtn.classList.add('pause-active');
+    }
+
+    elements.settingsBtn.addEventListener('click', () => {
+      elements.updatePanel.classList.toggle('active');
+      if (elements.updatePanel.classList.contains('active')) {
+        elements.urlInput.value = baseUrl;
+        elements.urlInput.select();
+        elements.shortcutsPanel.classList.remove('active');
+      }
+    });
+
+    elements.saveBtn.addEventListener('click', () => {
+      const newUrl = elements.urlInput.value.trim();
+      
+      if (!newUrl) {
+        showStatus('⚠️ Please enter a URL', 'error');
+        return;
+      }
+
+      if (!newUrl.includes('script.google.com') && !newUrl.includes('localhost')) {
+        showStatus('⚠️ Invalid URL format', 'error');
+        return;
+      }
+
+      if (saveBaseUrl(newUrl)) {
+        showStatus('✅ Saved! Reloading...', 'success');
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        showStatus('❌ Failed to save URL', 'error');
+      }
+    });
+
+    elements.cancelBtn.addEventListener('click', () => {
+      elements.updatePanel.classList.remove('active');
+    });
+
+    elements.shortcutsBtn.addEventListener('click', () => {
+      elements.shortcutsPanel.classList.toggle('active');
+      elements.updatePanel.classList.remove('active');
+    });
+
+    elements.pauseBtn.addEventListener('click', togglePause);
+    elements.nextBtn.addEventListener('click', nextScreen);
+    elements.prevBtn.addEventListener('click', prevScreen);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'u') {
+        e.preventDefault();
+        elements.settingsBtn.click();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        togglePause();
+      } else if (e.key === 'ArrowRight') {
+        nextScreen();
+      } else if (e.key === 'ArrowLeft') {
+        prevScreen();
+      } else if (e.key === 'Escape') {
+        elements.updatePanel.classList.remove('active');
+        elements.shortcutsPanel.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!elements.updatePanel.contains(e.target) && 
+          !elements.settingsBtn.contains(e.target)) {
+        elements.updatePanel.classList.remove('active');
+      }
+      
+      if (!elements.shortcutsPanel.contains(e.target) && 
+          !elements.shortcutsBtn.contains(e.target)) {
+        elements.shortcutsPanel.classList.remove('active');
+      }
+    });
+
+    initializeScreens();
+    progressIntervalId = setInterval(updateProgress, 100);
+
+    console.log('✅ Event Display initialized successfully');
+    console.log('📍 Base URL:', baseUrl);
+    console.log('📊 Total Screens:', SCREENS.length);
+    console.log('🧬 MSA and Network screens added!');
+  </script>
+</body>
+</html>
