@@ -609,28 +609,60 @@
       container.innerHTML = '';
 
       const cw = 135, ch = 55, pad = 40;
-      const minSpacing = 70; // Minimum space between cards to prevent overlap
+      const minSpacing = 50; // Optimized spacing for max 91 cards
       const positions = [];
 
-      // RANDOM PLACEMENT: Generate completely random positions for organic look
+      // ZONE-BASED RANDOM PLACEMENT (optimized for up to 91 cards)
+      // Divide canvas into zones for efficient space usage
+      const zoneRows = 10;
+      const zoneCols = 10;
+      const totalZones = zoneRows * zoneCols; // 100 zones for 91 cards
+
+      const zoneWidth = (canvasW - pad * 2) / zoneCols;
+      const zoneHeight = (canvasH - pad * 2) / zoneRows;
+
+      // Create array of available zones and shuffle it
+      const availableZones = [];
+      for (let i = 0; i < totalZones; i++) {
+        availableZones.push(i);
+      }
+
+      // Shuffle zones for random distribution
+      for (let i = availableZones.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [availableZones[i], availableZones[j]] = [availableZones[j], availableZones[i]];
+      }
+
       guests.forEach((guest, index) => {
         let x, y;
+
+        // Get a random zone for this card
+        const zoneIndex = availableZones[index % availableZones.length];
+        const zoneRow = Math.floor(zoneIndex / zoneCols);
+        const zoneCol = zoneIndex % zoneCols;
+
+        // Calculate zone boundaries
+        const zoneLeft = pad + zoneCol * zoneWidth;
+        const zoneTop = pad + zoneRow * zoneHeight;
+
+        // Try to place card randomly within its zone
         let attempts = 0;
         let hasOverlap = true;
 
-        // Try to find a non-overlapping random position
-        while (hasOverlap && attempts < 200) {
-          // Generate completely random position within canvas bounds
-          x = pad + Math.random() * (canvasW - cw - pad * 2);
-          y = pad + Math.random() * (canvasH - ch - pad * 2);
+        while (hasOverlap && attempts < 50) {
+          // Random position within zone, ensuring card fits
+          const maxOffsetX = Math.max(10, zoneWidth - cw - 10);
+          const maxOffsetY = Math.max(10, zoneHeight - ch - 10);
 
-          // Check if this position overlaps with any existing cards
+          x = zoneLeft + Math.random() * maxOffsetX;
+          y = zoneTop + Math.random() * maxOffsetY;
+
+          // Check for overlaps with existing cards
           hasOverlap = false;
           for (const pos of positions) {
             const dx = Math.abs(x - pos.x);
             const dy = Math.abs(y - pos.y);
 
-            // Check if cards are too close (including card dimensions + spacing)
             if (dx < (cw + minSpacing) && dy < (ch + minSpacing)) {
               hasOverlap = true;
               break;
@@ -640,22 +672,15 @@
           attempts++;
         }
 
-        // If we couldn't find a spot after many attempts, use force placement
-        if (hasOverlap && attempts >= 200) {
-          // Fall back to systematic placement with large spacing
-          const fallbackCol = index % 5;
-          const fallbackRow = Math.floor(index / 5);
-          x = pad + fallbackCol * (cw + minSpacing + 50);
-          y = pad + fallbackRow * (ch + minSpacing + 50);
-
-          // Add some randomness even to fallback
-          x += (Math.random() - 0.5) * 20;
-          y += (Math.random() - 0.5) * 20;
-
-          // Ensure within bounds
-          x = Math.max(pad, Math.min(x, canvasW - cw - pad));
-          y = Math.max(pad, Math.min(y, canvasH - ch - pad));
+        // Fallback: center of zone with small random offset
+        if (hasOverlap) {
+          x = zoneLeft + (zoneWidth - cw) / 2 + (Math.random() - 0.5) * 10;
+          y = zoneTop + (zoneHeight - ch) / 2 + (Math.random() - 0.5) * 10;
         }
+
+        // Ensure within canvas bounds
+        x = Math.max(pad, Math.min(x, canvasW - cw - pad));
+        y = Math.max(pad, Math.min(y, canvasH - ch - pad));
 
         positions.push({x, y});
         guestPositionsMap[guest.uid] = {x: x + cw/2, y: y + ch/2};
@@ -671,7 +696,7 @@
         container.appendChild(card);
       });
 
-      log(`> Placed ${guests.length} cards with random organic layout`);
+      log(`> Placed ${guests.length} cards using zone-based random layout (max 91)`);
     }
     
     function showUnknowns(unknowns) {
