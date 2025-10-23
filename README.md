@@ -1,13 +1,8 @@
 # App Code Description — Panopticon + Compatibility Stack
-0) Golden Rules (apply everywhere)
 
+CheckInInterface.html and Checkincode should not be messed with as is working fine. 
 Scope of analytics: Only run on guests with Checked-In = "Y" in Form Responses (Clean) column AB.
-
 Function changes: add new behavior via new functions (e.g., foo_v2()), don’t silently refactor. Comment why.
-
-Aesthetic: minimal UI, clear toasts, 2-space indent, <100-char lines, consistent constants.
-
-Safety: no external calls; batch read/write; < 6-min runtime; catch & log warnings, proceed best-effort.
 
 1) Sheets & Constants (single source of truth)
 // Sheet ids
@@ -51,279 +46,125 @@ const H = {
   Photo_URL: 'PHOTO_URL_COL'
 };
 
-2) Entry Points (UI + Orchestration)
-onOpen()
+🧠 Project README — The Panopticon / Compatibility Analytics System
+Overview
 
-Purpose: add a menu for ops.
+This project is an AI-structured analytics environment built around a live guest dataset collected through Google Forms. It transforms raw event responses into interactive visualizations — including the Panopticon Wall and Compatibility Matrix — while keeping the original check-in workflow completely intact.
 
-Output: UI menu: 📋 Documentation → Generate Master_Desc, Refresh All Analytics.
+All analytics run on read-only copies of cleaned data and automatically document themselves for traceability, reversibility, and machine understanding.
 
+Core Philosophy
 
-3) Logging & Utilities
-logToPan(message, ctx = {})
+This system is designed to:
 
-Purpose: append a timestamped row to Pan_Log.
+Observe without interference — analytics never alter the check-in interface or raw data.
 
-Inputs: message string; optional context object (serialized).
+Track data evolution — every transformation from one sheet to another is logged in a Data Dictionary.
 
-Output: row: [ISO time, message, JSON(ctx)].
+Allow modular expansion — new functions can bloom (expand) or collapse (contract) without breaking lineage.
 
-Why: provenance; every analytic step is traceable.
+Stay explainable to AI models — every function is documented, reversible, and discoverable.
 
-getHeaderMap_(sheet)
+Protected Sheets
+Sheet	Description	Editable By
+Form Responses 1	Raw Google Form feed.	System (check-in only)
+Form Responses (Clean) (FRC)	Normalized guest data. Used for all analytics.	checkInGuest, updateGuestScreenName, uploadGuestPhoto only
 
-Purpose: map header text → column index (1-based).
+⚠️ No analytics function may write to these sheets.
+All reads must filter to guests where Checked-In = "Y" (Column AB).
 
-Output: { header: colIndex }.
+Analytics Layers
+1. Pan_Master
 
-readFilteredRows_()
+Encodes validated guest data numerically for statistical analysis.
 
-Purpose: batch-read only checked-in rows from SRC_SHEET.
+Input: Form Responses (Clean)
 
-Filter: H.CHECKED === "Y".
+Output: Pan_Master
 
-Output: { rows, headerMap }.
+Purpose: prepare data for association strength calculations (Cramér’s V).
 
-ensureSheet_(name, rows, cols)
+2. Pan_Dict
 
-Purpose: idempotent output creation; clears & sizes, but doesn’t delete.
+Validation and translation reference for categorical mappings.
 
-4) Validation Dictionary (Pan_Dict)
-buildPanDict()
+Defines all valid options and numeric codes.
 
-Purpose: produce clean, ordered codebooks (labels → numeric codes) for all categorical fields used by analytics.
+Used by all encoding and similarity functions.
 
-Sources: distinct values from checked-in rows.
+3. V_Cramer_Cat
 
-Normalize: trim, case-safe, collapse variants like (N/A) into explicit "N/A".
+Computes Cramér’s V matrix between categorical variables.
 
-Outputs: OUT.DICT with columns:
+Purpose: measure association strength between demographics, traits, and interests.
 
-key (e.g., zodiac, age_range, education, ethnicity, gender, orientation, industry, role, know_hosts, known_longest, recent_purchase, at_worst, social_stance, music_pref, interest)
+4. Guest_Similarity
 
-label
+Generates pairwise guest similarity scores (for compatibility visuals).
 
-code (1..N per key)
+Uses: Interests, Music Preference, “At Worst,” and Recent Purchase.
 
-valid (TRUE/FALSE) — only labels that pass formatting rules
+Excludes demographics for diversity.
 
-Bloom: codes are first born here (the seed for Pan_Master encodings).
+Output: ranked similarity matrix for one-to-one match mapping.
 
-Tracked: Pan_Log entry with counts per key.
+5. Panopticon Wall Export
 
-Tip: keep interests unified under a single interest key; you’ll encode Int1/Int2/Int3 using the same dictionary.
+Transforms analytic sheets into real-time JSON or HTML assets for front-end visualization.
 
-5) Numeric Encodings (Pan_Master)
-buildPanMaster()
+Displays dynamic guest clustering, crowd polarity, and collective metrics.
 
-Purpose: convert all categorical responses to numeric codes using Pan_Dict and pass through numeric/date fields. Invalid/missing → N/A.
+Documentation & Registry Sheets
+Sheet	Purpose
+Master_Desc	Auto-generated overview of all sheets, columns, data types, and samples.
+Tool_Registry	Logs every function run (with version, inputs, and outputs).
+Data_Dictionary	Documents from → to mappings at column-level granularity with notes on transformations.
+Function Development Rules
 
-Inputs: checked-in rows, Pan_Dict maps.
+Every new Apps Script or AI-generated function must:
 
-Columns (example):
+Never modify Form Responses 1 or FRC.
 
-UID | Screen Name | timestamp | zodiac | age_range | education | zip | ethnicity |
-gender | orientation | industry | role | know_hosts | known_longest | know_score |
-interest_1 | interest_2 | interest_3 | music_pref | recent_purchase | at_worst |
-social_stance | checked_in_time
+Document itself in:
 
+Tool_Registry: execution, input/output lineage.
 
-Encoding:
+Data_Dictionary: field-by-field mapping with notes.
 
-categorical → dictionary codes
+Call Master_Desc after creation to refresh documentation.
 
-numeric pass-through: zip, know_score, social_stance
+Include inline descriptive comments explaining its intent and data flow.
 
-dates standardized as ISO strings or serials
+Support parameters: {expand: true|false, contract: true|false} for adaptive detail.
 
-Bloom: analysis-ready table (every var is numeric or normalized).
+Use archive/rollback utilities for safe reversion (archiveSheet_(), revertLast_()).
 
-Stacked: sheet Pan_Master, versioned by rebuild; note counts of valid vs N/A.
+AI Integration Rules
 
-6) Association Strength (V_Cramer_Cat)
-buildVCramers()
+For LLMs (e.g., Claude, GPT, Gemini) working on this repository:
 
-Purpose: compute Cramér’s V between all selected categorical columns from Pan_Master.
+Context Access
 
-Scope:
-Demographics: zodiac, age_range, education, ethnicity, gender, orientation
-Employment: industry, role
-Social: know_hosts, known_longest, recent_purchase, at_worst
-Interests: music_pref, interest_1, interest_2, interest_3
+Models may read from all generated sheets except Form Responses 1 and Form Responses (Clean).
 
-Computation (per pair X,Y):
+Must reference the latest Master_Desc or Data_Dictionary for structural awareness.
 
-Build contingency table on non-N/A.
+Code Modification Policy
 
-χ² test statistic.
+AI assistants may only make function-by-function updates (no full rewrites).
 
-phi2 = chi2 / n.
+Must preserve naming conventions, comments, and aesthetic layout.
 
-V = sqrt( phi2 / min(k-1, r-1) ), clip [0,1].
+Each new function must automatically append its metadata to Data_Dictionary.
 
-Output: OUT.VCAT matrix; row/col headers are keys; cells numeric (0..1).
+Purpose of AI Collaboration
 
-Bloom: association map (the field’s magnetic field).
+Automate analytics expansion (new similarity metrics, visual mappings).
 
-Tracked: write matrix + diagonals = 1; log skipped pairs with low sample size.
+Maintain human-readable documentation and system coherence.
 
-7) Pairwise Compatibility (Guest_Similarity + Edges)
-buildGuestSimilarity()
+Allow iterative “expansion/contraction” of analytics without losing traceability.
 
-Purpose: compute pairwise similarity among checked-in guests, excluding demographics to promote diversity.
-
-Included factors (default):
-
-Interests: interest_1..3 (same dictionary)
-
-music_pref, recent_purchase, at_worst
-
-Metric (default hybrid):
-
-Jaccard on {interest_1, interest_2, interest_3} sets
-
-Exact-match bonus: +0.2 for music_pref
-
-Soft bonus: +0.1 if recent_purchase matches
-
-Soft bonus: +0.1 if at_worst matches
-
-Cap at 1.0
-
-Outputs:
-
-OUT.SIM (optional full matrix) or
-
-OUT.EDGES sparse table: uid_a | uid_b | sim | reasons
-
-reasons: compact explainer (e.g., int:2,music,aworst)
-
-Bloom: edges for front-end “compatibility verse.”
-
-Stacked: rank top-N per UID (e.g., N=5) for fast UI.
-
-Swap metric easily by adding scoreGuestPair_v2_(a, b, weights).
-
-8) Documentation (Master_Desc)
-generateMasterDesc()
-
-Purpose: self-document every sheet: name, columns, inferred types, samples, row counts, and lineage notes.
-
-Inferences: date vs number vs text vs code; formula presence.
-
-Special tags by sheet name:
-
-Pan_Master → “Numeric encodings for Cramér’s V”
-
-Pan_Dict → “Validation dictionary”
-
-V_Cramer_Cat → “Association matrix”
-
-Guest_Similarity / Edges_Top_Sim → “Pairwise compatibility outputs”
-
-Extras:
-
-If source has Checked-In, compute coverage summary (count + %).
-
-Bloom: meta-knowledge for devs & Claude.
-
-Stacked: re-run after every build; frozen header, alternating stripes.
-
-9) Build Orchestration (Pan Sheets)
-buildPanSheets()
-
-Purpose: deterministic pipeline: Dict → Master → V → Sim → Docs.
-
-Order matters (stack):
-
-buildPanDict()
-
-buildPanMaster()
-
-buildVCramers()
-
-buildGuestSimilarity()
-
-generateMasterDesc()
-
-Tracked: single log line with durations per phase.
-
-10) Error Handling & Data Hygiene
-guardHeaders_(headerMap, requiredList)
-
-Warn on missing; continue with available subset.
-
-normalizeLabel_(s)
-
-Trim, unify whitespace, map common (N/A) variants, lowercase for dictionary keys while preserving display case.
-
-safeCramers_(x, y)
-
-Returns {v, n, k, r, warn}; if n<minN set v = N/A, log.
-
-11) Performance Tactics
-
-One getDataRange().getValues() per sheet; no per-row I/O.
-
-Build maps in memory; write in one setValues() per output sheet.
-
-Use sparse edges instead of full NxN when N grows.
-
-12) Front-End Read Model (for visuals)
-
-Panopticon (system layer):
-
-From V_Cramer_Cat: heatmap cells as brightness.
-
-From Pan_Master: density of codes per category for “old-school terminal” bars.
-
-From Pan_Log: recent events ticker (“Photo uploaded… Similarity spikes…”).
-
-Compatibility (human layer):
-
-From Edges_Top_Sim: draw 1-to-1 lines; pulse weight by sim.
-
-No individual PII beyond Screen Name + UID you already collect; avoid demographics.
-
-13) Testing Hooks
-
-test_readFilteredRows_() – asserts only AB="Y" rows returned.
-
-test_dictRoundTrip_() – encode→decode label equality.
-
-test_cramersSmoke_() – small synthetic contingency with known V.
-
-test_similarityEdgeCases_() – duplicates, missing interests, ties.
-
-14) Deployment & Ops
-
-Keep all builders in Pan_Builder.gs.
-
-Keep docs in Master_Desc.gs.
-
-Keep UI in Menu_UI.gs.
-
-Add a time-driven trigger (optional) to run refreshAllAnalytics() hourly during the party window.
-
-15) Comment Style (example)
-
-/**
-
-PURPOSE: Build numeric feature table for association & similarity.
-
-INPUT: Form Responses (Clean) — checked-in only (AB="Y"), Pan_Dict.
-
-OUTPUT: Pan_Master sheet with codes + cleaned numerics/dates.
-
-DEPENDS ON: buildPanDict, readFilteredRows_, getHeaderMap_.
-
-NOTES: Invalid labels → "N/A" code; dates normalized to ISO.
-*/
-
-TL;DR Data “blooms, tracks, stacks”
-
-Blooms in this order: Pan_Dict (codes) → Pan_Master (encodings) → V_Cramer_Cat (associations) → Edges_Top_Sim (matches).
-
-Tracked in Pan_Log for every orchestration step & warning.
-
-Stacked as layered sheets, rebuilt deterministically by buildPanSheets() and documented by generateMasterDesc().
+Example Data Dictionary Entry
+Timestamp	Function	Source Sheet	Source Field	Target Sheet	Target Field	Transform	Notes
+2025-10-22	buildPanMaster	Form Responses (Clean)	“Zodiac Sign”	Pan_Master	“code_zodiac”	code_map:zodiac	Converts to numeric code using Pan_Dict
