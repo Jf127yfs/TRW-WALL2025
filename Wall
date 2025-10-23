@@ -609,57 +609,52 @@
       container.innerHTML = '';
 
       const cw = 135, ch = 55, pad = 40;
-      const minSpacing = 60; // INCREASED: More space between cards to prevent overlap
+      const minSpacing = 70; // Minimum space between cards to prevent overlap
       const positions = [];
 
-      // Use force-directed grid for initial placement
-      const cols = Math.floor((canvasW - pad * 2) / (cw + minSpacing));
-      const rows = Math.ceil(guests.length / cols);
-
+      // RANDOM PLACEMENT: Generate completely random positions for organic look
       guests.forEach((guest, index) => {
-        // Calculate grid position first
-        const gridCol = index % cols;
-        const gridRow = Math.floor(index / cols);
+        let x, y;
+        let attempts = 0;
+        let hasOverlap = true;
 
-        // Add random offset within bounds to avoid perfect grid (reduced to prevent overlap)
-        const offsetX = (Math.random() - 0.5) * 15;
-        const offsetY = (Math.random() - 0.5) * 15;
+        // Try to find a non-overlapping random position
+        while (hasOverlap && attempts < 200) {
+          // Generate completely random position within canvas bounds
+          x = pad + Math.random() * (canvasW - cw - pad * 2);
+          y = pad + Math.random() * (canvasH - ch - pad * 2);
 
-        let x = pad + gridCol * (cw + minSpacing) + offsetX;
-        let y = pad + gridRow * (ch + minSpacing) + offsetY;
-
-        // Ensure within canvas bounds
-        x = Math.max(pad, Math.min(x, canvasW - cw - pad));
-        y = Math.max(pad, Math.min(y, canvasH - ch - pad));
-
-        // Check for overlaps with existing cards - IMPROVED ALGORITHM
-        let adjustmentAttempts = 0;
-        while (adjustmentAttempts < 100) { // INCREASED attempts
-          let hasOverlap = false;
-
+          // Check if this position overlaps with any existing cards
+          hasOverlap = false;
           for (const pos of positions) {
             const dx = Math.abs(x - pos.x);
             const dy = Math.abs(y - pos.y);
 
-            // IMPROVED: Check if cards are too close (including card dimensions)
+            // Check if cards are too close (including card dimensions + spacing)
             if (dx < (cw + minSpacing) && dy < (ch + minSpacing)) {
               hasOverlap = true;
-              // IMPROVED: Push away more aggressively based on distance
-              const pushDistance = 35; // INCREASED from 15
-              const pushX = x < pos.x ? -pushDistance : pushDistance;
-              const pushY = y < pos.y ? -pushDistance : pushDistance;
-              x += pushX;
-              y += pushY;
-
-              // Keep in bounds
-              x = Math.max(pad, Math.min(x, canvasW - cw - pad));
-              y = Math.max(pad, Math.min(y, canvasH - ch - pad));
               break;
             }
           }
 
-          if (!hasOverlap) break;
-          adjustmentAttempts++;
+          attempts++;
+        }
+
+        // If we couldn't find a spot after many attempts, use force placement
+        if (hasOverlap && attempts >= 200) {
+          // Fall back to systematic placement with large spacing
+          const fallbackCol = index % 5;
+          const fallbackRow = Math.floor(index / 5);
+          x = pad + fallbackCol * (cw + minSpacing + 50);
+          y = pad + fallbackRow * (ch + minSpacing + 50);
+
+          // Add some randomness even to fallback
+          x += (Math.random() - 0.5) * 20;
+          y += (Math.random() - 0.5) * 20;
+
+          // Ensure within bounds
+          x = Math.max(pad, Math.min(x, canvasW - cw - pad));
+          y = Math.max(pad, Math.min(y, canvasH - ch - pad));
         }
 
         positions.push({x, y});
@@ -676,7 +671,7 @@
         container.appendChild(card);
       });
 
-      log(`> Placed ${guests.length} cards with enhanced overlap prevention`);
+      log(`> Placed ${guests.length} cards with random organic layout`);
     }
     
     function showUnknowns(unknowns) {
