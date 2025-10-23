@@ -103,37 +103,56 @@ function buildConnectionsByCategory(guests) {
 }
 
 /**
- * Build connections for age groups
+ * Build connections for age groups (by age ranges)
  */
 function buildAgeConnections(guests) {
   const ageGroups = {};
-  
+
+  // Helper function to determine age range
+  function getAgeRange(age) {
+    const ageNum = parseInt(age);
+    if (isNaN(ageNum)) return null;
+
+    if (ageNum >= 18 && ageNum <= 20) return 'Age_range_18-20';
+    if (ageNum >= 21 && ageNum <= 24) return 'Age_range_21-24';
+    if (ageNum >= 25 && ageNum <= 29) return 'Age_range_25-29';
+    if (ageNum >= 30 && ageNum <= 34) return 'Age_range_30-34';
+    if (ageNum >= 35 && ageNum <= 39) return 'Age_range_35-39';
+    if (ageNum >= 40 && ageNum <= 44) return 'Age_range_40-44';
+    if (ageNum >= 45) return 'Age_range_45+';
+
+    return null;
+  }
+
   guests.forEach(guest => {
     if (!guest.age) return;
-    
-    if (!ageGroups[guest.age]) {
-      ageGroups[guest.age] = [];
+
+    const ageRange = getAgeRange(guest.age);
+    if (!ageRange) return;
+
+    if (!ageGroups[ageRange]) {
+      ageGroups[ageRange] = [];
     }
-    ageGroups[guest.age].push(guest.uid);
+    ageGroups[ageRange].push(guest.uid);
   });
-  
-  // Create connections within each age group
+
+  // Create connections within each age range
   const connections = {};
-  Object.keys(ageGroups).forEach(ageGroup => {
-    const uids = ageGroups[ageGroup];
-    connections[ageGroup] = [];
-    
-    // Connect all pairs within the group
+  Object.keys(ageGroups).forEach(ageRange => {
+    const uids = ageGroups[ageRange];
+    connections[ageRange] = [];
+
+    // Connect all pairs within the range
     for (let i = 0; i < uids.length; i++) {
       for (let j = i + 1; j < uids.length; j++) {
-        connections[ageGroup].push({
+        connections[ageRange].push({
           source: uids[i],
           target: uids[j]
         });
       }
     }
   });
-  
+
   return connections;
 }
 
