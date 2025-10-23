@@ -57,6 +57,12 @@
       z-index: 900;
       font-size: 10px;
       scroll-behavior: smooth;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+    }
+
+    .left-sidebar::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
     }
     
     .stat-panel {
@@ -163,7 +169,7 @@
     
     @keyframes scroll-up {
       0% { transform: translateY(0); }
-      100% { transform: translateY(-100%); }
+      100% { transform: translateY(-33.33%); }
     }
     
     .unknown-guest {
@@ -192,6 +198,12 @@
       z-index: 900;
       font-size: 11px;
       overflow-y: auto;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+    }
+
+    .right-sidebar::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
     }
     
     .legend {
@@ -261,6 +273,12 @@
       line-height: 1.2;
       display: flex;
       align-items: center;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+    }
+
+    .terminal-content::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
     }
     
     .terminal-line {
@@ -359,6 +377,55 @@
       0%, 100% { transform: translate(-50%, -50%) scale(1); }
       50% { transform: translate(-50%, -50%) scale(1.05); }
     }
+
+    .speed-control {
+      margin-top: 15px;
+      padding-top: 10px;
+      border-top: 2px solid #00ff00;
+    }
+
+    .speed-label {
+      font-size: 10px;
+      color: #00ff00;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .speed-value {
+      color: #00ffff;
+      font-weight: bold;
+    }
+
+    .speed-slider {
+      width: 100%;
+      height: 4px;
+      background: rgba(0, 255, 0, 0.3);
+      outline: none;
+      -webkit-appearance: none;
+      border-radius: 2px;
+    }
+
+    .speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      background: #00ff00;
+      cursor: pointer;
+      border-radius: 50%;
+      box-shadow: 0 0 5px #00ff00;
+    }
+
+    .speed-slider::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: #00ff00;
+      cursor: pointer;
+      border-radius: 50%;
+      box-shadow: 0 0 5px #00ff00;
+      border: none;
+    }
   </style>
 </head>
 <body>
@@ -386,7 +453,15 @@
       <div class="stat-title">GUESTS</div>
       <div class="stat-value" id="guestCount">0</div>
     </div>
-    
+
+    <div class="speed-control">
+      <div class="speed-label">
+        <span>SPEED</span>
+        <span class="speed-value" id="speedValue">5x</span>
+      </div>
+      <input type="range" min="1" max="20" value="10" class="speed-slider" id="speedSlider">
+    </div>
+
     <div class="category-key">
       <div class="key-title">Analysis Key</div>
       <div id="categoryKeyContainer"></div>
@@ -395,18 +470,7 @@
   
   <div class="violations-panel">
     <div class="violations-header">⚠ CRITICAL VIOLATIONS</div>
-    <div class="violations-content">
-      <div class="violations-scroll" id="violationsScroll">
-        <div style="text-align: center; padding: 15px; color: #ffff00;">
-          NO VIOLATIONS DETECTED
-        </div>
-      </div>
-    </div>
-  </div>
-  
-  <div class="violations-panel">
-    <div class="violations-header">⚠ CRITICAL VIOLATIONS</div>
-    <div class="violations-content">
+    <div class="violations-content" id="violationsContent">
       <div class="violations-scroll" id="violationsScroll">
         <div style="text-align: center; padding: 15px; color: #ffff00;">
           NO VIOLATIONS DETECTED
@@ -454,13 +518,14 @@
   <script>
   (function() {
     'use strict';
-    
+
     let wallDataState = null;
     let guestPositionsMap = {};
     let mainCanvas, mainCtx;
     let subCategoryIndex = 0;
     let analysisQueue = [];
     let canvasW, canvasH;
+    let animationSpeed = 10; // 1 (slowest) to 20 (fastest)
     
     const COLOR_PALETTE = [
       '#00ffff', '#ff00ff', '#00ff00', '#ff9900', 
@@ -469,13 +534,23 @@
     ];
     
     window.addEventListener('load', init);
-    
+
     function init() {
       mainCanvas = document.getElementById('wallCanvas');
       mainCtx = mainCanvas.getContext('2d');
-      
+
       resizeCanvas();
       window.addEventListener('resize', resizeCanvas);
+
+      // Setup speed slider
+      const speedSlider = document.getElementById('speedSlider');
+      const speedValue = document.getElementById('speedValue');
+      speedSlider.addEventListener('input', function() {
+        animationSpeed = parseInt(this.value);
+        const displaySpeed = Math.round((animationSpeed / 2) * 10) / 10;
+        speedValue.textContent = displaySpeed + 'x';
+      });
+
       loadData();
     }
     
@@ -532,62 +607,64 @@
     function placeCards(guests) {
       const container = document.getElementById('guestCardsContainer');
       container.innerHTML = '';
-      
+
       const cw = 135, ch = 55, pad = 40;
-      const minSpacing = 30; // More space between cards
+      const minSpacing = 60; // INCREASED: More space between cards to prevent overlap
       const positions = [];
-      
+
       // Use force-directed grid for initial placement
       const cols = Math.floor((canvasW - pad * 2) / (cw + minSpacing));
       const rows = Math.ceil(guests.length / cols);
-      
+
       guests.forEach((guest, index) => {
         // Calculate grid position first
         const gridCol = index % cols;
         const gridRow = Math.floor(index / cols);
-        
-        // Add random offset within bounds to avoid perfect grid
-        const offsetX = (Math.random() - 0.5) * 30;
-        const offsetY = (Math.random() - 0.5) * 30;
-        
+
+        // Add random offset within bounds to avoid perfect grid (reduced to prevent overlap)
+        const offsetX = (Math.random() - 0.5) * 15;
+        const offsetY = (Math.random() - 0.5) * 15;
+
         let x = pad + gridCol * (cw + minSpacing) + offsetX;
         let y = pad + gridRow * (ch + minSpacing) + offsetY;
-        
+
         // Ensure within canvas bounds
         x = Math.max(pad, Math.min(x, canvasW - cw - pad));
         y = Math.max(pad, Math.min(y, canvasH - ch - pad));
-        
-        // Check for overlaps with existing cards
+
+        // Check for overlaps with existing cards - IMPROVED ALGORITHM
         let adjustmentAttempts = 0;
-        while (adjustmentAttempts < 50) {
+        while (adjustmentAttempts < 100) { // INCREASED attempts
           let hasOverlap = false;
-          
+
           for (const pos of positions) {
             const dx = Math.abs(x - pos.x);
             const dy = Math.abs(y - pos.y);
-            
-            if (dx < cw + minSpacing && dy < ch + minSpacing) {
+
+            // IMPROVED: Check if cards are too close (including card dimensions)
+            if (dx < (cw + minSpacing) && dy < (ch + minSpacing)) {
               hasOverlap = true;
-              // Push away from overlap
-              const pushX = x < pos.x ? -15 : 15;
-              const pushY = y < pos.y ? -15 : 15;
+              // IMPROVED: Push away more aggressively based on distance
+              const pushDistance = 35; // INCREASED from 15
+              const pushX = x < pos.x ? -pushDistance : pushDistance;
+              const pushY = y < pos.y ? -pushDistance : pushDistance;
               x += pushX;
               y += pushY;
-              
+
               // Keep in bounds
               x = Math.max(pad, Math.min(x, canvasW - cw - pad));
               y = Math.max(pad, Math.min(y, canvasH - ch - pad));
               break;
             }
           }
-          
+
           if (!hasOverlap) break;
           adjustmentAttempts++;
         }
-        
+
         positions.push({x, y});
         guestPositionsMap[guest.uid] = {x: x + cw/2, y: y + ch/2};
-        
+
         const card = document.createElement('div');
         card.className = 'guest-card' + (guest.isUnknown ? ' unknown' : '');
         card.style.left = x + 'px';
@@ -598,32 +675,38 @@
         `;
         container.appendChild(card);
       });
-      
-      log(`> Placed ${guests.length} cards with overlap prevention`);
+
+      log(`> Placed ${guests.length} cards with enhanced overlap prevention`);
     }
     
     function showUnknowns(unknowns) {
       const scroll = document.getElementById('violationsScroll');
-      
+      const content = document.getElementById('violationsContent');
+
       if (unknowns.length === 0) {
         scroll.innerHTML = '<div style="text-align: center; padding: 15px; color: #00ff00;">NO VIOLATIONS DETECTED</div>';
+        scroll.style.animation = 'none';
         return;
       }
-      
+
       let html = '<div style="color: #ff0000; font-weight: bold; margin-bottom: 10px; font-size: 12px;">UNKNOWN GUEST DETECTED<br>REPORT TO HOST</div>';
-      
+
       unknowns.forEach(u => {
         html += `<div class="unknown-guest">● ${u.uid} - ${u.screenName}</div>`;
       });
-      
+
       html += `<div style="margin: 15px 0; border-top: 1px solid #ffff00; padding-top: 10px;">
         <div style="display: flex; justify-content: space-between; font-size: 11px;">
           <span>HIGH RISK:</span>
           <span style="color: #ff0000; font-weight: bold;">${unknowns.length}</span>
         </div>
       </div>`;
-      
-      scroll.innerHTML = html + html;
+
+      // ENHANCED: Duplicate content for seamless continuous scroll
+      scroll.innerHTML = html + html + html;
+
+      // Enable scroll animation
+      scroll.style.animation = 'scroll-up 15s linear infinite';
     }
     
     function buildQueue(connsByCategory) {
@@ -728,22 +811,25 @@
         }, 5000);
         return;
       }
-      
+
       const item = analysisQueue[subCategoryIndex];
       const status = `ANALYZING: ${item.category.toUpperCase()}_${item.subCategory.toUpperCase()}`;
       document.getElementById('statusText').textContent = status;
       document.getElementById('legendText').textContent = item.subCategory;
       document.querySelector('.legend-color').style.background = item.color;
-      
+
+      // FIX: Highlight current analysis in the sidebar
+      highlightCurrentAnalysis(subCategoryIndex);
+
       log(`> Analyzing ${item.category}: ${item.subCategory}`);
       log('> Building similarity matrix...');
       log('> Calculating graph edges...');
-      
+
       drawLines(item.connections, item.color);
-      
+
       document.getElementById('connectionCount').textContent = item.connections.length;
       document.getElementById('foundConnections').textContent = item.connections.length;
-      
+
       setTimeout(() => {
         clear();
         const next = analysisQueue[subCategoryIndex + 1];
@@ -803,25 +889,27 @@
           function animateSegment() {
             if (step >= steps) {
               idx++;
-              setTimeout(drawOne, 15); // 1000% slower: 15ms between lines starting
+              // SPEED CONTROL: Delay between lines based on slider (inverted: lower speed = longer delay)
+              const lineDelay = Math.max(5, 200 - (animationSpeed * 10));
+              setTimeout(drawOne, lineDelay);
               return;
             }
-            
+
             const progress = step / steps;
-            
+
             mainCtx.strokeStyle = color;
             mainCtx.lineWidth = 2;
             mainCtx.shadowBlur = 15;
             mainCtx.shadowColor = color;
-            
+
             mainCtx.beginPath();
             mainCtx.moveTo(waypoints[0].x, waypoints[0].y);
-            
+
             // Draw progressively along waypoints
             for (let i = 1; i < waypoints.length; i++) {
               const segmentStart = (i - 1) / (waypoints.length - 1);
               const segmentEnd = i / (waypoints.length - 1);
-              
+
               if (progress >= segmentEnd) {
                 mainCtx.lineTo(waypoints[i].x, waypoints[i].y);
               } else if (progress > segmentStart) {
@@ -832,16 +920,19 @@
                 break;
               }
             }
-            
+
             mainCtx.stroke();
             step++;
-            setTimeout(animateSegment, 20);
+            // SPEED CONTROL: Animation frame delay based on slider
+            const frameDelay = Math.max(5, 100 - (animationSpeed * 4));
+            setTimeout(animateSegment, frameDelay);
           }
-          
+
           animateSegment();
         } else {
           idx++;
-          setTimeout(drawOne, 15);
+          const lineDelay = Math.max(5, 200 - (animationSpeed * 10));
+          setTimeout(drawOne, lineDelay);
         }
       }
       
